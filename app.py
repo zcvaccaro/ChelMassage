@@ -9,7 +9,8 @@ import threading
 from urllib.parse import urlencode
 import smtplib
 import ssl
-from fpdf import FPDF, XPos, YPos # Consolidated FPDF, XPos, YPos import
+from fpdf import FPDF
+from fpdf.enums import XPos, YPos
 from PIL import Image # Moved Image import to top
 from flask import Flask, request, jsonify, render_template, url_for
 from zoneinfo import ZoneInfo
@@ -736,19 +737,19 @@ def test_email_route():
         # 1. Check Credentials
         email = SENDER_EMAIL
         password = APP_PASSWORD
-        
+
         log = []
         if "SENDER_EMAIL" not in os.environ:
             log.append("INFO: SENDER_EMAIL env var not set. Using hardcoded/default value.")
-        
+
         if not email or not password:
             return jsonify({"status": "error", "message": "Missing credentials", "log": log}), 500
-        
+
         # Mask password for safety in display
         masked_password = password[:4] + "*" * (len(password) - 4) if len(password) > 4 else "****"
         log.append(f"Sender: {email}")
         log.append(f"Password (masked): {masked_password}")
-        
+
         # 2. Try Port 465 (SSL)
         log.append("Attempting Port 465 (SSL)...")
         try:
