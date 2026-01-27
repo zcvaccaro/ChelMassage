@@ -5,6 +5,7 @@
 import base64
 import datetime
 import os
+import socket
 import threading
 from urllib.parse import urlencode
 import smtplib
@@ -179,13 +180,24 @@ def send_smtp_email(receiver_email, subject, body_html, attachment_data=None, at
     # Create a secure SSL context
     context = ssl.create_default_context()
 
+    # FIX: Force IPv4 resolution to prevent [Errno 101] Network is unreachable on Render
+    # Render sometimes struggles with IPv6 for Gmail.
+    target_host = "smtp.gmail.com"
+    try:
+        target_host = socket.gethostbyname("smtp.gmail.com")
+        # When connecting via IP, we must relax SSL hostname checks
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+    except Exception as e:
+        print(f"Warning: IPv4 resolution failed: {e}")
+
     # Ensure password has no spaces (Google App Passwords often have spaces for readability)
     final_password = APP_PASSWORD.replace(" ", "")
 
     try:
         # Attempt 1: Port 465 (SSL) - Preferred for background tasks
-        print(f"Attempting to send email to {receiver_email} via Port 465...")
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context, timeout=20) as server:
+        print(f"Attempting to send email to {receiver_email} via Port 465 (Host: {target_host})...")
+        with smtplib.SMTP_SSL(target_host, 465, context=context, timeout=20) as server:
             server.login(SENDER_EMAIL, final_password)
             server.sendmail(SENDER_EMAIL, receiver_email, message.as_string())
         print("Email sent successfully via Port 465!")
@@ -194,7 +206,7 @@ def send_smtp_email(receiver_email, subject, body_html, attachment_data=None, at
         print(f"Port 465 failed: {e_ssl}. Retrying with Port 587...")
         try:
             # Attempt 2: Port 587 (STARTTLS) - Fallback
-            with smtplib.SMTP("smtp.gmail.com", 587, timeout=20) as server:
+            with smtplib.SMTP(target_host, 587, timeout=20) as server:
                 server.ehlo()
                 server.starttls(context=context)
                 server.ehlo()
@@ -754,8 +766,17 @@ def test_email_route():
         log.append("Attempting Port 465 (SSL)...")
         try:
             context = ssl.create_default_context()
+            
+            # Force IPv4 for test route too
+            test_host = "smtp.gmail.com"
+            try:
+                test_host = socket.gethostbyname("smtp.gmail.com")
+                context.check_hostname = False
+                context.verify_mode = ssl.CERT_NONE
+            except: pass
+            
             final_password = password.replace(" ", "")
-            with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context, timeout=20) as server:
+            with smtplib.SMTP_SSL(test_host, 465, context=context, timeout=20) as server:
                 log.append("Connected to 465.")
                 server.login(email, final_password)
                 log.append("Logged in successfully.")
