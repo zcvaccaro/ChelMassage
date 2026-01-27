@@ -446,6 +446,7 @@ def book_appointment():
     # --- Define Async Email Task ---
     def send_emails_background():
         # 1. Client Email
+        print(f"BACKGROUND_TASK: Starting to send emails for booking. Client email is: {client_email}")
         if client_email:
             email_subject = "Your Massage Appointment is Confirmed!"
             email_body_html = f"""
@@ -455,9 +456,15 @@ def book_appointment():
             <p><a href="{intake_url}" style="padding: 10px 15px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px;">Complete Intake Form</a></p>
             <p>Thank you,<br>Chelsea Vaccaro Massage Therapy</p>
             """
-            send_smtp_email(client_email, email_subject, email_body_html)
+            client_email_sent = send_smtp_email(client_email, email_subject, email_body_html)
+            if client_email_sent:
+                print("BACKGROUND_TASK: Successfully sent confirmation email to client.")
+            else:
+                # This will now appear in Render logs if it fails
+                print("BACKGROUND_TASK: WARNING: Failed to send confirmation email to client.")
 
         # 2. Admin Email
+        print("BACKGROUND_TASK: Starting to send admin notification email.")
         try:
             admin_email = SENDER_EMAIL
             admin_subject = f"New Booking: {summary}"
@@ -471,7 +478,11 @@ def book_appointment():
             <p><strong>Comments:</strong> {data.get('description', '').replace('Comments: ', '')}</p>
             <p>The event has been added to your Google Calendar.</p>
             """
-            send_smtp_email(admin_email, admin_subject, admin_body_html)
+            admin_email_sent = send_smtp_email(admin_email, admin_subject, admin_body_html)
+            if admin_email_sent:
+                print("BACKGROUND_TASK: Successfully sent notification email to admin.")
+            else:
+                print("BACKGROUND_TASK: WARNING: Failed to send notification email to admin.")
         except Exception as e:
             print(f"CRITICAL: Failed to send admin notification email for booking. Error: {e}")
 
@@ -482,6 +493,84 @@ def book_appointment():
         "message": "Booking successful!",
         "event_link": created_event.get('htmlLink')
     })
+
+def _handle_intake_submission_background(data, pdf_output):
+    """Handles slow tasks (Sheets, Email) for intake form in the background."""
+    client_name = f"{data.get('firstName', 'N/A')} {data.get('lastName', 'N/A')}"
+    # --- 3. Update Google Sheets ---
+    try:
+        sheets_service = get_sheets_service()
+        if sheets_service:
+            # --- Part A: Update "Clients" sheet (if new client) ---
+            client_email = data.get('email')
+            if client_email:
+                # Read the email column from the "Clients" sheet to check for existence
+                result = sheets_service.spreadsheets().values().get(
+                    spreadsheetId=SPREADSHEET_ID,
+                    range='Clients!C:C' # Assuming Email is in Column C
+                ).execute()
+                existing_emails = [item for sublist in result.get('values', []) for item in sublist]
+
+                if client_email not in existing_emails:
+                    print(f"BACKGROUND_TASK: New client detected: {client_email}. Adding to 'Clients' sheet.")
+                    client_row = [
+                        data.get('firstName', ''),
+                        data.get('lastName', ''),
+                        client_email,
+                        data.get('phone', ''),
+                        data.get('dob', ''),
+                        data.get('address', '') # Now pulling address from form data
+                    ]
+                    sheets_service.spreadsheets().values().append(
+                        spreadsheetId=SPREADSHEET_ID,
+                        range='Clients!A1',
+                        valueInputOption='USER_ENTERED',
+                        body={'values': [client_row]}
+                    ).execute()
+
+            # --- Part B: Always append to "Intake Forms" sheet ---
+            intake_row = [
+                datetime.datetime.now(ZoneInfo(LOCAL_TIMEZONE)).strftime('%Y-%m-%d %H:%M:%S'),
+                client_name,
+                data.get('reason', ''),
+                data.get('conditions', ''),
+                data.get('allergies', '')
+            ]
+            sheets_service.spreadsheets().values().append(
+                spreadsheetId=SPREADSHEET_ID,
+                range='Intake Forms!A1',
+                valueInputOption='USER_ENTERED',
+                body={'values': [intake_row]}
+            ).execute()
+            print("BACKGROUND_TASK: Successfully updated Google Sheets.")
+    except Exception as sheets_e:
+        print(f"ERROR (background): Failed to update Google Sheets: {sheets_e}")
+
+    # --- 4. Send Email to Admin ---
+    try:
+        admin_email = SENDER_EMAIL
+        email_subject = f"New Intake Form Submitted by {client_name}"
+        email_body_html = f"""
+        <p>A new client intake form has been submitted.</p>
+        <p><strong>Client:</strong> {client_name}</p>
+        <p><strong>Email:</strong> {data.get('email', 'N/A')}</p>
+        <p><strong>Original Booking:</strong> {data.get('bookingDate', 'N/A')} at {data.get('bookingTime', 'N/A')}</p>
+        <p>The completed form is attached as a PDF.</p>
+        """
+        attachment_filename = f"IntakeForm_{data.get('lastName', '')}_{data.get('firstName', '')}.pdf"
+        email_sent = send_smtp_email(
+            receiver_email=admin_email,
+            subject=email_subject,
+            body_html=email_body_html,
+            attachment_data=pdf_output,
+            attachment_filename=attachment_filename
+        )
+        if email_sent:
+            print("BACKGROUND_TASK: Successfully sent intake form email to admin.")
+        else:
+            raise Exception("send_smtp_email returned False for intake form.")
+    except Exception as e:
+        print(f"ERROR (background): Failed to send intake form email: {e}")
 
 @app.route('/api/submit-intake', methods=['POST'])
 def submit_intake():
@@ -614,79 +703,10 @@ def submit_intake():
         # Get PDF data as bytes
         pdf_output = pdf.output()
 
-        # --- 3. Update Google Sheets ---
-        try:
-            sheets_service = get_sheets_service()
-            if sheets_service:
-                # --- Part A: Update "Clients" sheet (if new client) ---
-                client_email = data.get('email')
-                if client_email:
-                    # Read the email column from the "Clients" sheet to check for existence
-                    result = sheets_service.spreadsheets().values().get(
-                        spreadsheetId=SPREADSHEET_ID,
-                        range='Clients!C:C' # Assuming Email is in Column C
-                    ).execute()
-                    existing_emails = [item for sublist in result.get('values', []) for item in sublist]
-
-                    if client_email not in existing_emails:
-                        print(f"New client detected: {client_email}. Adding to 'Clients' sheet.")
-                        client_row = [
-                            data.get('firstName', ''),
-                            data.get('lastName', ''),
-                            client_email,
-                            data.get('phone', ''),
-                            data.get('dob', ''),
-                            # Address is not on the form, so it will be blank
-                            data.get('address', '') # Now pulling address from form data
-                        ]
-                        sheets_service.spreadsheets().values().append(
-                            spreadsheetId=SPREADSHEET_ID,
-                            range='Clients!A1',
-                            valueInputOption='USER_ENTERED',
-                            body={'values': [client_row]}
-                        ).execute()
-
-                # --- Part B: Always append to "Intake Forms" sheet ---
-                intake_row = [
-                    datetime.datetime.now(ZoneInfo(LOCAL_TIMEZONE)).strftime('%Y-%m-%d %H:%M:%S'),
-                    client_name,
-                    data.get('reason', ''),
-                    data.get('conditions', ''),
-                    data.get('allergies', '')
-                ]
-                sheets_service.spreadsheets().values().append(
-                    spreadsheetId=SPREADSHEET_ID,
-                    range='Intake Forms!A1',
-                    valueInputOption='USER_ENTERED',
-                    body={'values': [intake_row]}
-                ).execute()
-                print("Successfully updated Google Sheets.")
-        except Exception as sheets_e:
-            print(f"ERROR: Failed to update Google Sheets: {sheets_e}")
-
-        # --- 4. Send Email to Admin ---
-        admin_email = SENDER_EMAIL
-        email_subject = f"New Intake Form Submitted by {client_name}"
-        email_body_html = f"""
-        <p>A new client intake form has been submitted.</p>
-        <p><strong>Client:</strong> {client_name}</p>
-        <p><strong>Email:</strong> {data.get('email', 'N/A')}</p>
-        <p><strong>Original Booking:</strong> {data.get('bookingDate', 'N/A')} at {data.get('bookingTime', 'N/A')}</p>
-        <p>The completed form is attached as a PDF.</p>
-        """
-
-        attachment_filename = f"IntakeForm_{data.get('lastName', '')}_{data.get('firstName', '')}.pdf"
-
-        email_sent = send_smtp_email(
-            receiver_email=admin_email,
-            subject=email_subject,
-            body_html=email_body_html,
-            attachment_data=pdf_output,
-            attachment_filename=attachment_filename
-        )
-
-        if not email_sent:
-            raise Exception("Failed to send intake form email to admin.")
+        # --- Start Background Tasks ---
+        # Move the slow operations (Google Sheets update, email sending) to a background thread
+        # to avoid client-side timeouts.
+        threading.Thread(target=_handle_intake_submission_background, args=(data, pdf_output)).start()
 
         return jsonify({"message": "Intake form submitted successfully."}), 200
 
