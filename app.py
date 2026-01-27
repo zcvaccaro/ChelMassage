@@ -4,7 +4,7 @@
 # and will use a Google Service Account for authentication.
 import base64
 import datetime
-import os.path
+import os
 import threading
 from urllib.parse import urlencode
 import smtplib
@@ -74,9 +74,9 @@ SPREADSHEET_ID = '1lcTDwJ33soNj90bohmKOJ9_qSXl0EnbaIZQZbf3pCn4' # Placeholder - 
 LOCAL_TIMEZONE = "America/New_York" # IMPORTANT: Change to your local timezone, e.g., "America/Chicago"
 # --- Email Configuration (SMTP with App Password) ---
 # IMPORTANT: For better security, store these in environment variables instead of hardcoding.
-SENDER_EMAIL = "cvlmt101@gmail.com"
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "cvlmt101@gmail.com")
 # IMPORTANT: Paste the 16-digit App Password you generated here.
-APP_PASSWORD = "cpdw khsp sqes krye" # e.g., "abcd efgh ijkl mnop"
+APP_PASSWORD = os.environ.get("APP_PASSWORD", "cpdw khsp sqes krye")
 
 def get_calendar_service():
     """Authenticates and returns a Google Calendar API service object."""
@@ -179,7 +179,9 @@ def send_smtp_email(receiver_email, subject, body_html, attachment_data=None, at
     try:
         # Use Port 587 with STARTTLS (More reliable for cloud hosting)
         with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.ehlo()
             server.starttls(context=context)
+            server.ehlo()
             server.login(SENDER_EMAIL, APP_PASSWORD)
             server.sendmail(SENDER_EMAIL, receiver_email, message.as_string())
         print("Email sent successfully!")
