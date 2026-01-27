@@ -1,0 +1,800 @@
+/* --- Global Styles & Resets --- */
+* {
+  /* Define CSS variables in the root for easy access */
+  --primary-text-color: #333;
+  --accent-color-dark: #d9534f; /* A bootstrap-like danger red */
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.6;
+  color: var(--primary-text-color);
+  background-color: #fff;
+}
+
+h1, h2, h3 {
+  line-height: 1.2;
+  margin-bottom: 1rem;
+}
+
+h2 {
+  text-align: center;
+  font-size: 2.5rem;
+  margin-bottom: 2rem;
+}
+
+img {
+  max-width: 100%;
+}
+
+a {
+  text-decoration: none;
+  color: inherit;
+}
+
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 2rem;
+}
+
+section {
+  padding: 4rem 0;
+}
+
+/* --- Buttons --- */
+.cta,
+button {
+  display: inline-block;
+  position: relative; /* Needed for loader positioning */
+  padding: 12px 24px;
+  border: none;
+  background: #000;
+  color: #fff;
+  font-size: 1rem;
+  font-weight: bold;
+  cursor: pointer;
+  border-radius: 50px;
+  border: 1px solid #000;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.cta:hover,
+button:hover {
+  background-color: #fff; /* Inverted background */
+  color: #000; /* Inverted text color */
+}
+
+/* --- Loading Spinner for Buttons --- */
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+button.loading {
+  color: transparent !important; /* Hide button text */
+  cursor: wait;
+  pointer-events: none; /* Prevent multiple clicks */
+}
+
+button.loading::after {
+  content: '';
+  display: block;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 20px;
+  height: 20px;
+  margin-top: -12px;  /* Adjusted to be slightly higher */
+  margin-left: -10px; /* Half of width */
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  /* Ensure spinner appears above transparent text */
+  z-index: 1;
+}
+
+/* When hovering, the button background changes, so the spinner needs to adapt */
+button.loading:hover::after {
+  border-color: rgba(0, 0, 0, 0.3);
+  border-top-color: #000;
+}
+
+
+/* --- Header & Navigation --- */
+header {
+  background: #fff; /* Changed to white */
+  color: #000; /* Changed to black for contrast */
+  border-bottom: 1px solid #eee;
+  padding: 1rem 0;
+  position: sticky;
+  top: 0;
+  width: 100%;
+  z-index: 1000;
+}
+
+.header-inner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: none; /* Allow header to span full width */
+  width: 100%;
+  padding: 0 2rem;;
+}
+
+.logo {
+  font-size: 2.3rem;
+  font-weight: bold;
+  line-height: 1.1;
+}
+
+.logo small {
+  font-size: 1.2rem;
+  font-weight: normal;
+}
+
+#navMenu a {
+  margin: 0 1.2rem;
+  font-size: 1.1rem;
+  transition: opacity 0.3s ease;
+}
+
+#navMenu a:hover {
+  opacity: 0.7;
+}
+
+#navMenu:hover a:not(.cta) {
+    color: #999;
+}
+#navMenu a:hover:not(.cta) {
+    color: #000;
+}
+
+/* Make the nav bar's CTA button less bold */
+#navMenu .cta {
+  font-weight: 400;
+}
+
+.nav-toggle {
+  display: none; /* Hidden on desktop */
+  font-size: 1.5rem;
+  background: transparent;
+  color: #000; /* Make the hamburger icon black */
+}
+
+/* --- Hero Section --- */
+.hero {
+  position: relative;
+  height: calc(100vh - 101px); /* Subtract the header's height to fit perfectly */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #fff;
+  padding: 0;
+}
+
+.hero img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: -2;
+}
+
+.hero::after { /* Black overlay for text readability */
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: -1;
+}
+
+.hero h1 {
+  font-size: 4rem;
+}
+
+.hero p {
+  font-size: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+/* Special CTA button for Hero section */
+.hero .cta {
+  background: transparent; /* Default state is now translucent */
+  color: #fff;
+  border-color: #fff;
+}
+
+.hero .cta:hover {
+  background: #fff; /* Hover state is now white */
+  color: #000;
+}
+
+/* --- Services Section Padding --- */
+.services {
+  padding: 3rem 1.5rem; /* Added horizontal padding for mobile */
+}
+
+/* --- Services Section --- */
+.services .grid {
+  display: grid;
+  /* Mobile-first: 1 column by default */
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid #eee;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  text-align: center;
+  padding: 1.5rem; /* Reduced padding inside cards */
+  position: relative;
+  border-radius: 15px; /* Rounded corners */
+  display: flex; /* Enable flexbox for vertical alignment */
+  flex-direction: column; /* Stack items vertically */
+  transition: opacity 0.3s ease-in-out; /* Only need to transition opacity for the original card */
+}
+
+.card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+}
+
+.card h3 {
+  font-size: 1.4rem;
+}
+
+.card-summary {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between; /* Create space between text and button */
+  flex-grow: 1; /* Make the summary fill the card's space */
+}
+
+.learn-more {
+  margin-top: auto; /* Push button to the bottom */
+  align-self: center; /* Keep button centered */
+  width: fit-content;
+  padding: 8px 16px; /* Smaller button padding */
+  font-size: 0.9rem; /* Smaller button font */
+  margin-top: 1rem; /* Add a minimum space above the button */
+}
+
+/* Hide elements for future JS interaction */
+.info-box {
+  display: none;
+  flex-direction: column; /* Stack content and actions vertically */
+  height: 100%; /* Ensure it fills the card */
+}
+.info-box-content {
+  flex-grow: 1;
+  overflow-y: auto; /* Allow content to scroll if it overflows */
+  padding: 1rem; /* Add some padding around the content */
+  display: flex;
+  flex-direction: column; /* This is correct */
+}
+
+.info-box-content img {
+  max-height: 200px; /* Constrain the image height */
+  object-fit: cover; /* Ensure the image covers the area without distortion */
+  align-self: center; /* Center the image horizontally */
+  margin-bottom: 1rem;
+  margin-top: auto; /* Push the image (and text below it) down from the h3 */
+}
+
+.info-box-content p:last-of-type {
+  margin-bottom: auto; /* Center the content block vertically */
+}
+
+.info-box-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 1.5rem;
+  gap: 0.5rem;
+}
+
+.close-card-btn { font-size: 0.8rem; padding: 6px 12px; }
+
+/* Mobile Nav Active State */
+@media (max-width: 950px) {
+  #navMenu.is-active {
+    display: flex;
+    flex-direction: column;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    width: 100%;
+    background: #fff; /* Change background to white */
+    padding: 1rem 0;
+    align-items: center; /* Center the nav items horizontally */
+    gap: 1rem; /* Add space between the menu items */
+  }
+}
+
+/* --- About Sections --- */
+.about, .about-me {
+  display: flex;
+  align-items: center;
+  gap: 3rem;
+}
+
+/* Add extra space below the "Our Promise" and "About Me" sections */
+#about, #about-me {
+  padding-bottom: 6rem;
+}
+
+.about-text {
+  flex: 1;
+}
+
+.about img, #about-me img {
+  flex: 1;
+  max-width: 500px;
+  border-radius: 5px;
+}
+
+.about-text ul {
+  list-style: none;
+  padding-left: 0;
+}
+
+.about-text ul li {
+  margin-bottom: 0.5rem;
+  padding-left: 1.5rem;
+  position: relative;
+}
+
+.about-text ul li::before {
+  content: '✓';
+  position: absolute;
+  left: 0;
+  color: #000;
+}
+
+/* --- Contact & Footer --- */
+.contact {
+  text-align: center;
+  background: #f4f4f4;
+}
+
+footer {
+  background: #000;
+  color: #fff;
+  text-align: center;
+  padding: 2rem 0;
+}
+
+/* --- Responsive Styles --- */
+@media (max-width: 950px) {
+  h2 {
+    font-size: 2rem;
+  }
+
+  .nav-toggle {
+    display: block; /* Show hamburger menu */
+  }
+
+  #navMenu {
+    display: none; /* Hide nav links by default */
+  }
+
+  .about, #about-me {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  /* Reverse direction for the first about section */
+  .about {
+    flex-direction: column-reverse;
+  }
+}
+
+/* --- Grid Breakpoints for Services --- */
+
+/* 2 columns for tablets and small desktops */
+@media (min-width: 600px) {
+  .services .grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* 4 columns for larger desktops */
+@media (min-width: 1200px) {
+  .services .grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* --- JS-driven Active States --- */
+body.card-open {
+  overflow: hidden;
+}
+
+.overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.7);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease-in-out;
+  z-index: 1999;
+}
+
+/* --- Form & Reservation Page Styles --- */
+.reservation-section {
+  padding-top: 4rem;
+  padding-bottom: 4rem;
+  max-width: 800px; /* Constrain form width for readability */
+  margin: 0 auto;
+}
+
+.reservation-section h2 {
+  margin-bottom: 1rem;
+}
+
+.reservation-section p {
+  text-align: center;
+  margin-bottom: 3rem;
+  color: #666;
+}
+
+.reservation-form,
+.intake-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.form-row {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.form-row .form-group {
+  flex: 1;
+}
+
+label {
+  margin-bottom: 0.5rem;
+  font-weight: bold;
+  color: #333;
+}
+
+input[type="text"],
+input[type="email"],
+input[type="tel"],
+input[type="date"],
+select,
+textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  font-size: 1rem;
+  font-family: inherit;
+}
+
+fieldset {
+  border: 1px solid #ddd;
+  border-radius: 5px;
+  padding: 1.5rem;
+  margin-top: 1rem;
+}
+
+legend {
+  padding: 0 0.5rem;
+  font-weight: bold;
+  color: #333;
+}
+
+/* --- Styles for Input with Icon --- */
+.input-with-icon {
+  position: relative;
+}
+
+.input-with-icon .input-icon {
+  position: absolute;
+  right: 15px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  width: 20px; /* Set a width for the icon */
+  height: 20px; /* Set a height for the icon */
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3crect x='3' y='4' width='18' height='18' rx='2' ry='2'%3e%3c/rect%3e%3cline x1='16' y1='2' x2='16' y2='6'%3e%3c/line%3e%3cline x1='8' y1='2' x2='8' y2='6'%3e%3c/line%3e%3cline x1='3' y1='10' x2='21' y2='10'%3e%3c/line%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: center;
+  opacity: 0.6;
+}
+
+.input-with-icon input {
+  padding-right: 45px; /* Add space for the icon */
+}
+
+
+
+/* --- Intake Form Specific Styles --- */
+input[type="text"]:read-only, input[type="email"]:read-only, input[type="tel"]:read-only {
+  background-color: #f0f0f0; /* Grey out non-editable fields */
+  cursor: not-allowed;
+}
+
+/* Override read-only style specifically for the flatpickr date input */
+input#date:read-only {
+  background-color: #fff;
+  cursor: pointer; /* Use a pointer to indicate it's clickable */
+}
+
+
+.radio-group {
+  display: flex;
+  gap: 1.5rem;
+  margin-top: 0.5rem;
+}
+
+.radio-group label {
+  font-weight: normal;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.body-chart-container {
+  display: flex;
+  justify-content: space-around;
+  flex-wrap: wrap;
+  gap: 2rem;
+  margin-top: 1rem;
+}
+
+.body-chart {
+  position: relative;
+  cursor: crosshair;
+  text-align: center;
+  flex: 1;
+  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+}
+
+.body-chart > div[style*="position: relative;"] {
+  /* This targets the JS-created image wrapper */
+  flex-grow: 1; /* Allow the wrapper to grow and fill the vertical space */
+}
+
+.body-chart canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.body-chart img {
+  max-width: 100%;
+  height: 100%; /* Allow image to fill the container's height */
+  object-fit: contain; /* Prevent the image from being distorted */
+}
+
+.body-chart p {
+  margin-top: 0.5rem;
+  font-weight: bold;
+  color: #333;
+}
+
+.undo-btn {
+  margin-top: 0.75rem;
+  padding: 4px 12px;
+  font-size: 0.8rem;
+  font-weight: normal;
+  text-transform: none;
+  background-color: #000000; /* Black when enabled */
+  border-color: #000000;
+  align-self: center;
+  width: fit-content;
+}
+
+.undo-btn:disabled {
+  background-color: #ccc;
+  border-color: #ccc;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* --- Terms and Conditions Box --- */
+.terms-box {
+  /* Removed styles for scrollable box to display all content */
+  margin-bottom: 1.5rem;
+  text-align: center; /* Center all the text inside */
+}
+
+.terms-box ul {
+  display: inline-block; /* Allows the list block to be centered */
+  text-align: left; /* Keep the list item text left-aligned for readability */
+}
+
+.terms-box h4 {
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.agreement-group {
+  display: flex;
+  flex-direction: column; /* Stack text and box vertically */
+  align-items: center;
+  gap: 0.75rem; /* Space between text and box */
+}
+
+.checkbox-label {
+  cursor: pointer;
+}
+
+/* Hide the default checkbox */
+.agreement-group input[type="checkbox"] {
+  opacity: 0;
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
+/* Create a custom checkbox box */
+.agreement-group .checkbox-label::before {
+  content: '';
+  display: block;
+  width: 24px; /* Larger box */
+  height: 24px; /* Larger box */
+  border: 2px solid #333;
+  border-radius: 4px;
+  background-color: #fff;
+  transition: background-color 0.2s ease-in-out;
+}
+
+/* Style the custom checkbox when the hidden input is checked */
+.agreement-group input[type="checkbox"]:checked ~ .checkbox-label::before {
+  background-color: #000; /* Black background when checked */
+  border-color: #000;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3e%3cpath fill='%23fff' d='M6.564.75l-3.59 3.612-1.538-1.55L0 4.26l2.974 2.99L8 2.193z'/%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+/* --- Confirmation Page Styles --- */
+.confirmation-section {
+  text-align: center;
+  padding: 5rem 2rem;
+}
+
+.confirmation-title {
+  font-size: 2.5rem;
+  margin-bottom: 1rem;
+}
+
+/* Note: Changed selector from class to ID to match HTML */
+#confirmation-message {
+  font-size: 1.2rem;
+  color: #555;
+  margin-bottom: 2rem; /* Reduced space above the button */
+}
+
+/* --- Sticky Footer & Centering for Confirmation Page --- */
+.confirmation-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh; /* Ensure body takes up full viewport height */
+}
+
+.confirmation-page main {
+  flex-grow: 1; /* Allow main content to grow and push footer down */
+  display: flex;
+  justify-content: center; /* Center content horizontally */
+  align-items: center;   /* Center content vertically */
+}
+
+/* --- Modal Styles --- */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  display: none; /* Hidden by default */
+  justify-content: center;
+  align-items: center;
+  z-index: 3000; /* Ensure it's on top of everything */
+}
+
+.modal-content {
+  background: #fff;
+  padding: 2rem;
+  border-radius: 8px;
+  max-width: 600px;
+  width: 90%;
+  position: relative;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+}
+
+.close-modal-btn {
+  position: absolute;
+  top: 10px;
+  right: 15px;
+  font-size: 1.5rem;
+  font-weight: bold;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  color: #555;
+}
+
+/* --- Helper Styles --- */
+.link-button {
+  background: none;
+  border: none;
+  color: #333;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+  font-size: inherit;
+}
+
+/* --- Modal Styles --- */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  display: none; /* Hidden by default */
+  justify-content: center;
+  align-items: center;
+  z-index: 3000; /* Ensure it's on top of everything */
+}
+
+.modal-content {
+  background: #fff;
+  padding: 2rem;
+  border-radius: 8px;
+  max-width: 600px;
+  width: 90%;
+  position: relative;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+}
+
+.close-modal-btn {
+  position: absolute;
+  top: 10px;
+  right: 15px;
+  font-size: 1.5rem;
+  font-weight: bold;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  color: #555;
+}

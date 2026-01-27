@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Massage Therapy | Chelsea Vaccaro</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+</head>
+<body>
+  <header>
+    <div class="container header-inner">
+      <div class="logo"><a href="{{ url_for('home') }}">Chelsea Vaccaro<br><small>MassageTherapy</small></a></div>
+      <nav id="navMenu">
+        <a href="{{ url_for('home') }}">Home</a>
+        <a href="#services">Services</a>
+        <a href="#about">About</a>
+        <a href="#contact">Contact</a>
+        <a href="{{ url_for('booking_page') }}" class="cta">Reserve Now</a>
+      </nav>
+      <button class="nav-toggle" id="navToggle">☰</button>
+    </div>
+  </header>
+
+  <section class="hero" id="hero">
+    <img src="https://picsum.photos/1600/900?grayscale" alt="Massage hero image" />
+    <div class="container">
+      <h1>Heal + Refresh</h1>
+      <p>Expert Massage Therapy</p>
+      <a href="{{ url_for('booking_page') }}" class="cta">Reserve Now</a>
+    </div>
+  </section>
+
+  <section class="services container" id="services">
+  <h2>Our Services</h2>
+  <div class="grid">
+
+    <div class="card" data-service-id="deep-tissue">
+      <div class="card-summary">
+        <h3>Deep Tissue</h3>
+        <p>Targeted Relief</p>
+        <p>60 min — $150</p>
+        <button class="learn-more cta">Learn More</button>
+      </div>
+      <div class="info-box">
+        <div class="info-box-content">
+          <h3>Deep Tissue</h3>
+          <img src="https://picsum.photos/300/200?random=1" alt="Deep Tissue">
+          <p>Deep Tissue massage is a highly effective method for releasing chronic stress areas due to misalignment,
+            repetitive motions, and past injuries. The technique involves slow, deliberate strokes and deep finger pressure on contracted areas,
+            either following or going across the grain of muscles, tendons, and fascia. It is particularly beneficial for those with chronic pain,
+            limited mobility, and persistent muscle tension.
+            While the pressure is firm, it is customized to your comfort level to ensure a therapeutic and restorative experience.</p>
+        </div>
+        <div class="info-box-actions">
+          <a href="{{ url_for('booking_page', service='deep-tissue') }}" class="book-now-btn cta">Book Now</a>
+          <button class="close-card-btn">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" data-service-id="swedish">
+      <div class="card-summary">
+        <h3>Swedish</h3>
+        <p>Pure Relaxation</p>
+        <p>60 min — $140</p>
+        <button class="learn-more cta">Learn More</button>
+      </div>
+      <div class="info-box">
+        <div class="info-box-content">
+          <h3>Swedish</h3>
+          <img src="https://picsum.photos/300/200?random=2" alt="Swedish Massage">
+          <p>The Swedish massage is the cornerstone of modern Western massage, designed to relax the entire body.
+            This is achieved by rubbing the muscles with long, gliding strokes in the direction of blood returning to the heart.
+            Additional techniques include circular pressure, firm kneading, and gentle tapping.
+            It is an excellent choice for first-time massage clients or anyone seeking to manage stress and promote a sense of profound tranquility.
+            Benefits include increased oxygen levels in the blood, decreased muscle toxins, and improved circulation and flexibility.</p>
+        </div>
+        <div class="info-box-actions">
+          <a href="{{ url_for('booking_page', service='swedish') }}" class="book-now-btn cta">Book Now</a>
+          <button class="close-card-btn">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" data-service-id="prenatal">
+      <div class="card-summary">
+        <h3>Prenatal</h3>
+        <p>Maternal Comfort</p>
+        <p>60 min — $160</p>
+        <button class="learn-more cta">Learn More</button>
+      </div>
+      <div class="info-box">
+        <div class="info-box-content">
+          <h3>Prenatal</h3>
+          <img src="https://picsum.photos/300/200?random=3" alt="Prenatal Massage">
+          <p>Prenatal massage is a therapeutic bodywork that focuses on the special needs of the mother-to-be as her body goes through the
+            dramatic changes of pregnancy. It enhances the function of muscles and joints, improves circulation and general body tone,
+            and relieves mental and physical fatigue. Using specialized, gentle techniques and supportive pillows for safe positioning,
+            this massage helps to alleviate common discomforts such as backaches, stiff neck, leg cramps, and swelling. It is a natural,
+            touch-based way to support the physiological and emotional well-being of both mother and baby.</p>
+        </div>
+        <div class="info-box-actions">
+          <a href="{{ url_for('booking_page', service='prenatal') }}" class="book-now-btn cta">Book Now</a>
+          <button class="close-card-btn">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" data-service-id="mfr">
+      <div class="card-summary">
+        <h3>MFR</h3>
+        <p>Restore Mobility</p>
+        <p>60 min — $160</p>
+        <button class="learn-more cta">Learn More</button>
+      </div>
+      <div class="info-box">
+        <div class="info-box-content">
+          <h3>MFR</h3>
+          <img src="https://picsum.photos/300/200?random=4" alt="Myofascial Release">
+          <p>Myofascial Release (MFR) is a safe and highly effective hands-on technique that involves applying gentle,
+            sustained pressure into the myofascial connective tissue restrictions to eliminate pain and restore motion.
+            This specialized approach addresses the fascial system—the web of connective tissue that surrounds and supports your muscles.
+            By releasing tension in the fascia, MFR can have profound effects on body alignment, mobility, and pain patterns.
+            It is an excellent therapy for treating chronic pain, postural issues, and restricted movement.</p>
+        </div>
+        <div class="info-box-actions">
+          <a href="{{ url_for('booking_page', service='mfr') }}" class="book-now-btn cta">Book Now</a>
+          <button class="close-card-btn">Close</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+  <section class="about container" id="about">
+    <img src="https://picsum.photos/500/400" alt="Massage therapist" />
+    <div class="about-text">
+      <h2>Our Promise</h2>
+      <p>I am deeply dedicated to supporting any health condition that can be improved through bodywork,
+        and I proudly welcome people of all ages, backgrounds, and abilities. My practice is built on inclusivity,
+        respect, and the belief that everyone deserves skilled, compassionate care—whether you’re seeking relief, recovery,
+        or simply a moment to reconnect with your body.</p>
+    </div>
+  </section>
+
+  <section class="about container" id="about-me">
+    <div class="about-text">
+      <h2>About Me</h2>
+      <p>Chelsea Vaccaro is a licensed massage therapist with over 15 years of hands-on experience and an unwavering belief that the body
+        is always capable of change. Known for blending intuition with skill, Chelsea brings a thoughtful, results-driven approach to every
+        session—grounded in science, refined through experience, and fueled by a genuine love of learning.
+        With specialized expertise in myofascial release and prenatal massage, Chelsea works with clients navigating pain, tension,
+        stress, injury, and the many physical shifts life can bring. Her commitment to continued education ensures that her techniques
+        evolve alongside the latest understanding of the body, allowing her to tailor each session to the individual.</p>
+    </div>
+    <img src="https://picsum.photos/500/500" alt="Massage therapist" />
+  </section>
+
+  <section class="contact" id="contact">
+    <h2>Contact Us</h2>
+    <p>123 Main Street, Suite 100, Your City</p>
+    <p>(555) 123-4567</p>
+    <p>Mon–Thu: 9AM–8PM • Fri–Sun: 9AM–7PM</p>
+  </section>
+
+  <footer>
+    <p>&copy; 2025 MassageTherapy. All rights reserved.</p>
+  </footer>
+
+  <!-- Overlay for when a card is open -->
+  <div class="overlay"></div>
+
+  <script src="{{ url_for('static', filename='main.js') }}"></script>
+</body>
+</html>
