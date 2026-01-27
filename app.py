@@ -74,9 +74,9 @@ SPREADSHEET_ID = '1lcTDwJ33soNj90bohmKOJ9_qSXl0EnbaIZQZbf3pCn4' # Placeholder - 
 LOCAL_TIMEZONE = "America/New_York" # IMPORTANT: Change to your local timezone, e.g., "America/Chicago"
 # --- Email Configuration (SMTP with App Password) ---
 # IMPORTANT: For better security, store these in environment variables instead of hardcoding.
-SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "cvlmt101@gmail.com")
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "cvlmt101@gmail.com").strip()
 # IMPORTANT: Paste the 16-digit App Password you generated here.
-APP_PASSWORD = os.environ.get("APP_PASSWORD", "cpdw khsp sqes krye")
+APP_PASSWORD = os.environ.get("APP_PASSWORD", "cpdw khsp sqes krye").strip()
 
 def get_calendar_service():
     """Authenticates and returns a Google Calendar API service object."""
@@ -176,22 +176,32 @@ def send_smtp_email(receiver_email, subject, body_html, attachment_data=None, at
     # Create a secure SSL context
     context = ssl.create_default_context()
 
+    # Ensure password has no spaces (Google App Passwords often have spaces for readability)
+    final_password = APP_PASSWORD.replace(" ", "")
+
     try:
-        # Use Port 587 with STARTTLS (More reliable for cloud hosting)
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.ehlo()
-            server.starttls(context=context)
-            server.ehlo()
-            server.login(SENDER_EMAIL, APP_PASSWORD)
+        # Attempt 1: Port 465 (SSL) - Preferred for background tasks
+        print(f"Attempting to send email to {receiver_email} via Port 465...")
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
+            server.login(SENDER_EMAIL, final_password)
             server.sendmail(SENDER_EMAIL, receiver_email, message.as_string())
-        print("Email sent successfully!")
+        print("Email sent successfully via Port 465!")
         return True
-    except smtplib.SMTPAuthenticationError:
-        print("SMTP Authentication Error: Failed to login. Check SENDER_EMAIL and APP_PASSWORD.")
-        return False
-    except Exception as e:
-        print(f"An error occurred while sending email: {e}")
-        return False
+    except Exception as e_ssl:
+        print(f"Port 465 failed: {e_ssl}. Retrying with Port 587...")
+        try:
+            # Attempt 2: Port 587 (STARTTLS) - Fallback
+            with smtplib.SMTP("smtp.gmail.com", 587) as server:
+                server.ehlo()
+                server.starttls(context=context)
+                server.ehlo()
+                server.login(SENDER_EMAIL, final_password)
+                server.sendmail(SENDER_EMAIL, receiver_email, message.as_string())
+            print("Email sent successfully via Port 587!")
+            return True
+        except Exception as e_tls:
+            print(f"CRITICAL: Both Port 465 and 587 failed. Last error: {e_tls}")
+            return False
 
 
 # --- Frontend Routes ---
