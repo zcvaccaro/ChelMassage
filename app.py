@@ -9,7 +9,8 @@ import threading
 from urllib.parse import urlencode
 import smtplib
 import ssl
-from fpdf.enums import XPos, YPos
+from fpdf import FPDF, XPos, YPos # Consolidated FPDF, XPos, YPos import
+from PIL import Image # Moved Image import to top
 from flask import Flask, request, jsonify, render_template, url_for
 from zoneinfo import ZoneInfo
 from google.auth.transport.requests import Request
@@ -18,6 +19,7 @@ from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
 from google.oauth2.service_account import Credentials
+import io # Moved io import to top
 from googleapiclient.discovery import build, Resource
 from googleapiclient.errors import HttpError
 from datetime import timezone, timedelta
@@ -590,9 +592,6 @@ def submit_intake():
     API endpoint to receive intake form data, generate a PDF,
     and email it to the admin.
     """
-    from fpdf import FPDF
-    from PIL import Image # For handling PNG transparency
-    import io
 
     data = request.get_json()
     if not data:
