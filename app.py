@@ -725,6 +725,56 @@ def submit_intake():
         print(f"ERROR: /api/submit-intake: {e}")
         return jsonify({"error": "Server error while processing the form."}), 500
 
+# --- Debug Route (Add this to test emails directly) ---
+@app.route('/test-email')
+def test_email_route():
+    """
+    Debug route to test email configuration.
+    Visit /test-email in your browser to see the result.
+    """
+    try:
+        # 1. Check Credentials
+        email = SENDER_EMAIL
+        password = APP_PASSWORD
+        
+        log = []
+        if "SENDER_EMAIL" not in os.environ:
+            log.append("INFO: SENDER_EMAIL env var not set. Using hardcoded/default value.")
+        
+        if not email or not password:
+            return jsonify({"status": "error", "message": "Missing credentials", "log": log}), 500
+        
+        # Mask password for safety in display
+        masked_password = password[:4] + "*" * (len(password) - 4) if len(password) > 4 else "****"
+        log.append(f"Sender: {email}")
+        log.append(f"Password (masked): {masked_password}")
+        
+        # 2. Try Port 465 (SSL)
+        log.append("Attempting Port 465 (SSL)...")
+        try:
+            context = ssl.create_default_context()
+            final_password = password.replace(" ", "")
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
+                log.append("Connected to 465.")
+                server.login(email, final_password)
+                log.append("Logged in successfully.")
+                
+                msg = MIMEText("This is a test email from your Render deployment. If you see this, emails are working!")
+                msg["Subject"] = "Test Email - Chel Massage"
+                msg["From"] = email
+                msg["To"] = email # Send to self
+                
+                server.sendmail(email, email, msg.as_string())
+                log.append("Email sent command accepted.")
+                return jsonify({"status": "success", "method": "Port 465", "log": log})
+        except Exception as e:
+            log.append(f"Port 465 failed: {str(e)}")
+            
+        # If we get here, it failed.
+        return jsonify({"status": "failure", "log": log}), 500
+        
+    except Exception as e:
+        return jsonify({"status": "critical_error", "error": str(e)}), 500
 
 # --- Main Execution ---
 if __name__ == '__main__':
