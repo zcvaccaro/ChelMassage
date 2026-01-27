@@ -5,6 +5,7 @@
 import base64
 import datetime
 import os.path
+import threading
 from urllib.parse import urlencode
 import smtplib
 import ssl
@@ -424,63 +425,58 @@ def book_appointment():
     if not created_event:
         return jsonify({"error": "Failed to create calendar event."}), 500
 
-    # --- Send Confirmation Email ---
-    # We will call the email sending logic directly here after a successful booking.
+    # --- Prepare Data for Emails ---
     client_email = client_info.get('email')
-    if client_email:
-        # Prepare data for the email
-        # Convert UTC start_time to a local timezone for display
-        local_tz = ZoneInfo(LOCAL_TIMEZONE)
-        local_start_time = start_time.astimezone(local_tz) # Convert to the configured local timezone
+    local_tz = ZoneInfo(LOCAL_TIMEZONE)
+    local_start_time = start_time.astimezone(local_tz)
+    booking_date_formatted = local_start_time.strftime('%B %d, %Y')
+    booking_time_formatted = local_start_time.strftime('%I:%M %p')
+    client_first_name = client_info.get('first_name', 'Valued Client')
 
-        client_first_name = client_info.get('first_name', 'Valued Client')
-        booking_date_formatted = local_start_time.strftime('%B %d, %Y')
-        booking_time_formatted = local_start_time.strftime('%I:%M %p')
+    # Build the dynamic URL for the intake form (must be done in main thread)
+    intake_params = {
+        'firstName': client_info.get('first_name'),
+        'lastName': client_info.get('last_name'),
+        'email': client_email,
+        'phone': client_info.get('phone'),
+        'comments': data.get('description', '').replace('Comments: ', '')
+    }
+    intake_url = url_for('intake_page', _external=True) + '?' + urlencode(intake_params)
 
-        # Build the dynamic URL for the intake form
-        intake_params = {
-            'firstName': client_info.get('first_name'),
-            'lastName': client_info.get('last_name'),
-            'email': client_email,
-            'phone': client_info.get('phone'),
-            'comments': data.get('description', '').replace('Comments: ', '') # Pass along the original comments
-        }
-        intake_url = url_for('intake_page', _external=True) + '?' + urlencode(intake_params)
+    # --- Define Async Email Task ---
+    def send_emails_background():
+        # 1. Client Email
+        if client_email:
+            email_subject = "Your Massage Appointment is Confirmed!"
+            email_body_html = f"""
+            <p>Hi {client_first_name},</p>
+            <p>Thank you for booking your appointment! We look forward to seeing you on <strong>{booking_date_formatted}</strong> at <strong>{booking_time_formatted}</strong>.</p>
+            <p>As a next step, if you have not already, please complete our secure client intake form by clicking the link below:</p>
+            <p><a href="{intake_url}" style="padding: 10px 15px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px;">Complete Intake Form</a></p>
+            <p>Thank you,<br>Chelsea Vaccaro Massage Therapy</p>
+            """
+            send_smtp_email(client_email, email_subject, email_body_html)
 
-        # Prepare email content
-        email_subject = "Your Massage Appointment is Confirmed!"
-        email_body_html = f"""
-        <p>Hi {client_first_name},</p>
-        <p>Thank you for booking your appointment! We look forward to seeing you on <strong>{booking_date_formatted}</strong> at <strong>{booking_time_formatted}</strong>.</p>
-        <p>As a next step, if you have not already, please complete our secure client intake form by clicking the link below:</p>
-        <p><a href="{intake_url}" style="padding: 10px 15px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px;">Complete Intake Form</a></p>
-        <p>Thank you,<br>Chelsea Vaccaro Massage Therapy</p>
-        """
+        # 2. Admin Email
+        try:
+            admin_email = SENDER_EMAIL
+            admin_subject = f"New Booking: {summary}"
+            admin_body_html = f"""
+            <p><strong>You have a new booking!</strong></p>
+            <p><strong>Client:</strong> {client_info.get('first_name')} {client_info.get('last_name')}</p>
+            <p><strong>Service:</strong> {summary}</p>
+            <p><strong>When:</strong> {local_start_time.strftime('%A, %B %d, %Y at %I:%M %p')}</p>
+            <p><strong>Client Email:</strong> {client_info.get('email')}</p>
+            <p><strong>Client Phone:</strong> {client_info.get('phone')}</p>
+            <p><strong>Comments:</strong> {data.get('description', '').replace('Comments: ', '')}</p>
+            <p>The event has been added to your Google Calendar.</p>
+            """
+            send_smtp_email(admin_email, admin_subject, admin_body_html)
+        except Exception as e:
+            print(f"CRITICAL: Failed to send admin notification email for booking. Error: {e}")
 
-        # Send the email
-        email_sent_to_client = send_smtp_email(client_email, email_subject, email_body_html)
-        if not email_sent_to_client:
-            # Log this issue, but don't fail the whole booking since the calendar event was made.
-            print(f"WARNING: Failed to send confirmation email to client {client_email}")
-
-    # --- Send Notification Email to Admin ---
-    try:
-        admin_email = SENDER_EMAIL # The admin's email is the sender email
-        admin_subject = f"New Booking: {summary}"
-        admin_body_html = f"""
-        <p><strong>You have a new booking!</strong></p>
-        <p><strong>Client:</strong> {client_info.get('first_name')} {client_info.get('last_name')}</p>
-        <p><strong>Service:</strong> {summary}</p>
-        <p><strong>When:</strong> {start_time.astimezone(ZoneInfo(LOCAL_TIMEZONE)).strftime('%A, %B %d, %Y at %I:%M %p')}</p>
-        <p><strong>Client Email:</strong> {client_info.get('email')}</p>
-        <p><strong>Client Phone:</strong> {client_info.get('phone')}</p>
-        <p><strong>Comments:</strong> {data.get('description', '').replace('Comments: ', '')}</p>
-        <p>The event has been added to your Google Calendar.</p>
-        """
-        send_smtp_email(admin_email, admin_subject, admin_body_html)
-    except Exception as e:
-        # Log that the admin notification failed, but don't break the user's experience
-        print(f"CRITICAL: Failed to send admin notification email for booking. Error: {e}")
+    # --- Start Background Thread ---
+    threading.Thread(target=send_emails_background).start()
 
     return jsonify({
         "message": "Booking successful!",
