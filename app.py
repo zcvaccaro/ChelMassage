@@ -176,7 +176,9 @@ def send_smtp_email(receiver_email, subject, body_html, attachment_data=None, at
     context = ssl.create_default_context()
 
     try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
+        # Use Port 587 with STARTTLS (More reliable for cloud hosting)
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls(context=context)
             server.login(SENDER_EMAIL, APP_PASSWORD)
             server.sendmail(SENDER_EMAIL, receiver_email, message.as_string())
         print("Email sent successfully!")

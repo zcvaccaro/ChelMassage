@@ -106,7 +106,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify(payload)
             });
 
-            const result = await response.json();
+            let result;
+            const contentType = response.headers.get("content-type");
+            if (contentType && contentType.indexOf("application/json") !== -1) {
+                result = await response.json();
+            } else {
+                // If response is not JSON (e.g., HTML error page), handle it gracefully
+                const text = await response.text();
+                console.error("Server returned non-JSON response:", text);
+                throw new Error("Server timeout or internal error. Please check the Render logs.");
+            }
 
             if (!response.ok) {
                 throw new Error(result.error || 'An unknown error occurred.');
