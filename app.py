@@ -40,8 +40,17 @@ SPREADSHEET_ID = '1lcTDwJ33soNj90bohmKOJ9_qSXl0EnbaIZQZbf3pCn4'
 
 LOCAL_TIMEZONE = "America/New_York"
 # --- Email Configuration (SMTP with App Password) ---
-SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "cvlmt101@gmail.com").strip()
-APP_PASSWORD = os.environ.get("APP_PASSWORD", "cpdw khsp sqes krye").strip()
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "").strip()
+APP_PASSWORD = os.environ.get("APP_PASSWORD", "").strip()
+
+# --- Startup Configuration Checks ---
+if not SENDER_EMAIL or not APP_PASSWORD:
+    print("SYSTEM WARNING: SENDER_EMAIL or APP_PASSWORD not set. Emails will NOT send.")
+else:
+    print(f"SYSTEM: Email configuration loaded for {SENDER_EMAIL}")
+
+if not os.path.exists(SERVICE_ACCOUNT_FILE):
+    print(f"SYSTEM WARNING: {SERVICE_ACCOUNT_FILE} not found. Calendar/Sheets integration will fail.")
 
 def get_calendar_service():
     """Authenticates and returns a Google Calendar API service object."""
@@ -125,6 +134,11 @@ def create_event(service, summary, start_time, end_time, description="", calenda
 
 def send_smtp_email(receiver_email, subject, body_html, attachment_data=None, attachment_filename=None):
     """Sends an email using smtplib and an App Password."""
+    
+    if not SENDER_EMAIL or not APP_PASSWORD:
+        print("CRITICAL ERROR: SENDER_EMAIL or APP_PASSWORD environment variables are not set. Cannot send email.")
+        return False
+
     message = MIMEMultipart()
     message["Subject"] = subject
     message["From"] = SENDER_EMAIL
