@@ -6,6 +6,7 @@ import os
 import socket
 import threading
 from urllib.parse import urlencode
+import traceback
 import smtplib
 import ssl
 from fpdf import FPDF
@@ -169,7 +170,7 @@ def send_smtp_email(receiver_email, subject, body_html, attachment_data=None, at
 
     try:
         print(f"Attempting to send email to {receiver_email} via Port 465 (Host: {target_host})...")
-        with smtplib.SMTP_SSL(target_host, 465, context=context, timeout=30) as server:
+        with smtplib.SMTP_SSL(target_host, 465, context=context, timeout=10) as server:
             server.login(SENDER_EMAIL, final_password)
             server.sendmail(SENDER_EMAIL, receiver_email, message.as_string())
         print("Email sent successfully via Port 465!")
@@ -178,7 +179,7 @@ def send_smtp_email(receiver_email, subject, body_html, attachment_data=None, at
         print(f"Port 465 failed: {e_ssl}. Retrying with Port 587...")
         try:
             print(f"Attempting to send email to {receiver_email} via Port 587 (Host: {target_host})...")
-            with smtplib.SMTP(target_host, 587, timeout=30) as server:
+            with smtplib.SMTP(target_host, 587, timeout=10) as server:
                 server.ehlo()
                 server.starttls(context=context)
                 server.ehlo()
@@ -193,7 +194,7 @@ def send_smtp_email(receiver_email, subject, body_html, attachment_data=None, at
                 print("Retrying with standard hostname 'smtp.gmail.com' on Port 587...")
                 try:
                     std_context = ssl.create_default_context()
-                    with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as server:
+                    with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
                         server.ehlo()
                         server.starttls(context=std_context)
                         server.ehlo()
@@ -735,7 +736,7 @@ def test_email_route():
         # Attempt 1: Port 465
         log.append(f"Attempting Port 465 (SSL) to {test_host}...")
         try:
-            with smtplib.SMTP_SSL(test_host, 465, context=context, timeout=30) as server:
+            with smtplib.SMTP_SSL(test_host, 465, context=context, timeout=10) as server:
                 log.append("Connected to 465.")
                 server.login(email, final_password)
                 log.append("Logged in successfully.")
@@ -754,7 +755,7 @@ def test_email_route():
         # Attempt 2: Port 587
         log.append(f"Attempting Port 587 (STARTTLS) to {test_host}...")
         try:
-            with smtplib.SMTP(test_host, 587, timeout=30) as server:
+            with smtplib.SMTP(test_host, 587, timeout=10) as server:
                 log.append("Connected to 587.")
                 server.ehlo()
                 server.starttls(context=context)
@@ -778,7 +779,7 @@ def test_email_route():
             log.append("Retrying Port 587 with standard hostname 'smtp.gmail.com'...")
             try:
                 std_context = ssl.create_default_context()
-                with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as server:
+                with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
                     log.append("Connected to 587 (Hostname).")
                     server.ehlo()
                     server.starttls(context=std_context)
@@ -800,6 +801,8 @@ def test_email_route():
         return jsonify({"status": "failure", "log": log}), 200
 
     except Exception as e:
+        print("ERROR in /test-email:")
+        traceback.print_exc()
         return jsonify({"status": "critical_error", "error": str(e)}), 200
 
 # --- Main Execution ---
