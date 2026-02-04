@@ -134,7 +134,7 @@ def create_event(service, summary, start_time, end_time, description="", calenda
 
 def send_smtp_email(receiver_email, subject, body_html, attachment_data=None, attachment_filename=None):
     """Sends an email using smtplib and an App Password."""
-    
+
     if not SENDER_EMAIL or not APP_PASSWORD:
         print("CRITICAL ERROR: SENDER_EMAIL or APP_PASSWORD environment variables are not set. Cannot send email.")
         return False
@@ -188,7 +188,7 @@ def send_smtp_email(receiver_email, subject, body_html, attachment_data=None, at
             return True
         except Exception as e_tls:
             print(f"Port 587 failed with {target_host}: {e_tls}.")
-            
+
             if use_ip:
                 print("Retrying with standard hostname 'smtp.gmail.com' on Port 587...")
                 try:
@@ -697,13 +697,21 @@ def test_email_route():
     try:
         email = SENDER_EMAIL
         password = APP_PASSWORD
-
         log = []
+        # --- 1. Check System Configuration ---
+        log.append(f"Current Working Directory: {os.getcwd()}")
+        if os.path.exists(SERVICE_ACCOUNT_FILE):
+            log.append(f"PASS: '{SERVICE_ACCOUNT_FILE}' found.")
+        else:
+            log.append(f"FAIL: '{SERVICE_ACCOUNT_FILE}' NOT found. Please add it to Render Secret Files.")
+            # List files to help debug
+            log.append(f"Files in root: {os.listdir('.')}")
+
         if "SENDER_EMAIL" not in os.environ:
-            log.append("INFO: SENDER_EMAIL env var not set. Using hardcoded/default value.")
+            log.append("WARNING: SENDER_EMAIL env var not set.")
 
         if not email or not password:
-            return jsonify({"status": "error", "message": "Missing credentials", "log": log}), 500
+            return jsonify({"status": "error", "message": "Missing credentials", "log": log}), 200
 
         masked_password = password[:4] + "*" * (len(password) - 4) if len(password) > 4 else "****"
         log.append(f"Sender: {email}")
@@ -731,18 +739,18 @@ def test_email_route():
                 log.append("Connected to 465.")
                 server.login(email, final_password)
                 log.append("Logged in successfully.")
-                
+
                 msg = MIMEText("This is a test email from your Render deployment. If you see this, emails are working!")
                 msg["Subject"] = "Test Email - Chel Massage"
                 msg["From"] = email
                 msg["To"] = email
-                
+
                 server.sendmail(email, email, msg.as_string())
                 log.append("Email sent command accepted.")
                 return jsonify({"status": "success", "method": "Port 465", "log": log})
         except Exception as e:
             log.append(f"Port 465 failed: {str(e)}")
-            
+
         # Attempt 2: Port 587
         log.append(f"Attempting Port 587 (STARTTLS) to {test_host}...")
         try:
@@ -753,12 +761,12 @@ def test_email_route():
                 server.ehlo()
                 server.login(email, final_password)
                 log.append("Logged in successfully.")
-                
+
                 msg = MIMEText("This is a test email from your Render deployment. If you see this, emails are working!")
                 msg["Subject"] = "Test Email - Chel Massage"
                 msg["From"] = email
                 msg["To"] = email
-                
+
                 server.sendmail(email, email, msg.as_string())
                 log.append("Email sent command accepted.")
                 return jsonify({"status": "success", "method": "Port 587", "log": log})
@@ -777,22 +785,22 @@ def test_email_route():
                     server.ehlo()
                     server.login(email, final_password)
                     log.append("Logged in successfully.")
-                    
+
                     msg = MIMEText("This is a test email from your Render deployment. If you see this, emails are working!")
                     msg["Subject"] = "Test Email - Chel Massage"
                     msg["From"] = email
                     msg["To"] = email
-                    
+
                     server.sendmail(email, email, msg.as_string())
                     log.append("Email sent command accepted.")
                     return jsonify({"status": "success", "method": "Port 587 (Hostname)", "log": log})
             except Exception as e:
                 log.append(f"Port 587 (Hostname) failed: {str(e)}")
 
-        return jsonify({"status": "failure", "log": log}), 500
-        
+        return jsonify({"status": "failure", "log": log}), 200
+
     except Exception as e:
-        return jsonify({"status": "critical_error", "error": str(e)}), 500
+        return jsonify({"status": "critical_error", "error": str(e)}), 200
 
 # --- Main Execution ---
 if __name__ == '__main__':
