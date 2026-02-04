@@ -1,7 +1,5 @@
 
 # === Chel Massage Backend Plan ===
-# This backend will be built using Python (likely with Flask or FastAPI)
-# and will use a Google Service Account for authentication.
 import base64
 import datetime
 import os
@@ -12,7 +10,7 @@ import smtplib
 import ssl
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos
-from PIL import Image # Moved Image import to top
+from PIL import Image
 from flask import Flask, request, jsonify, render_template, url_for
 from zoneinfo import ZoneInfo
 from google.auth.transport.requests import Request
@@ -21,65 +19,28 @@ from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
 from google.oauth2.service_account import Credentials
-import io # Moved io import to top
+import io
 from googleapiclient.discovery import build, Resource
 from googleapiclient.errors import HttpError
 from datetime import timezone, timedelta
 
-# --- Core Dependencies ---
-# - google-auth-httplib2
-# - google-auth-oauthlib
-# - A web framework (e.g., flask)
-# - A PDF generation library (e.g., fpdf2)
 
-# --- Booking Workflow ---
-# 1. [API: Google Calendar] A client requests available time slots.
-#    - The backend queries the admin's calendar for free/busy periods to determine availability.
-# 2. [API: Google Calendar] A client confirms a booking.
-#
-#    - The backend creates a new event in the admin's calendar.
-#    - The event duration will be the service length + a 10-minute buffer.
-#    - Logic will be in place to prevent any double-bookings (race conditions).
-# 3. [API: Google Sheets] Client information is recorded.
-#    - Immutable data (name, DOB) is appended to the 'Client Characteristics' Google Sheet.
-#    - Visit-specific data (address, reason for visit) is appended to the 'Client Visit Log' Google Sheet.
-# 4. [API: Gmail] Confirmation emails are sent.
-#
-#    - An email is sent to the client with booking details and a link to the intake form.
-#    - A notification email is sent to the admin about the new booking.
-
-# --- Intake Form Workflow ---
-# 1. A client submits the web-based intake form.
-# 2. The backend receives the form data.
-#
-# 3. [PDF Library] A PDF document is generated from the submitted data.
-# 4. [API: Gmail] An email is sent to the admin with the client's data and the PDF as an attachment.
-#
-# --- Flask App Setup ---
 app = Flask(__name__, template_folder='templates', static_folder='static')
 
 
 # --- Google Calendar Integration ---
-# Define the scopes for Google Calendar API
 SCOPES = [
     'https://www.googleapis.com/auth/calendar',
     'https://www.googleapis.com/auth/gmail.send',
-    'https://www.googleapis.com/auth/spreadsheets' # Added scope for Google Sheets
+    'https://www.googleapis.com/auth/spreadsheets'
 ]
-SERVICE_ACCOUNT_FILE = 'key.json'  # Path to your service account key file
-# TODO: Replace this with your actual Google Calendar ID.
-# This is typically your email address for your primary calendar.
-# Find it in your calendar's "Settings and sharing" > "Integrate calendar".
-CALENDAR_ID = 'cvlmt101@gmail.com'  # Or the specific calendar ID
-# TODO: Replace this with the ID of your Google Sheet.
-# You can find this in the URL of your sheet (e.g., docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit)
-SPREADSHEET_ID = '1lcTDwJ33soNj90bohmKOJ9_qSXl0EnbaIZQZbf3pCn4' # Placeholder - REPLACE THIS
+SERVICE_ACCOUNT_FILE = 'key.json'
+CALENDAR_ID = 'cvlmt101@gmail.com'
+SPREADSHEET_ID = '1lcTDwJ33soNj90bohmKOJ9_qSXl0EnbaIZQZbf3pCn4'
 
-LOCAL_TIMEZONE = "America/New_York" # IMPORTANT: Change to your local timezone, e.g., "America/Chicago"
+LOCAL_TIMEZONE = "America/New_York"
 # --- Email Configuration (SMTP with App Password) ---
-# IMPORTANT: For better security, store these in environment variables instead of hardcoding.
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "cvlmt101@gmail.com").strip()
-# IMPORTANT: Paste the 16-digit App Password you generated here.
 APP_PASSWORD = os.environ.get("APP_PASSWORD", "cpdw khsp sqes krye").strip()
 
 def get_calendar_service():
@@ -180,24 +141,21 @@ def send_smtp_email(receiver_email, subject, body_html, attachment_data=None, at
     # Create a secure SSL context
     context = ssl.create_default_context()
 
-    # FIX: Force IPv4 resolution to prevent [Errno 101] Network is unreachable on Render
-    # Render sometimes struggles with IPv6 for Gmail.
     target_host = "smtp.gmail.com"
+    use_ip = False
     try:
         target_host = socket.gethostbyname("smtp.gmail.com")
-        # When connecting via IP, we must relax SSL hostname checks
+        use_ip = True
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
     except Exception as e:
         print(f"Warning: IPv4 resolution failed: {e}")
 
-    # Ensure password has no spaces (Google App Passwords often have spaces for readability)
     final_password = APP_PASSWORD.replace(" ", "")
 
     try:
-        # Attempt 1: Port 465 (SSL) - Preferred for background tasks
         print(f"Attempting to send email to {receiver_email} via Port 465 (Host: {target_host})...")
-        with smtplib.SMTP_SSL(target_host, 465, context=context, timeout=20) as server:
+        with smtplib.SMTP_SSL(target_host, 465, context=context, timeout=30) as server:
             server.login(SENDER_EMAIL, final_password)
             server.sendmail(SENDER_EMAIL, receiver_email, message.as_string())
         print("Email sent successfully via Port 465!")
@@ -205,8 +163,8 @@ def send_smtp_email(receiver_email, subject, body_html, attachment_data=None, at
     except Exception as e_ssl:
         print(f"Port 465 failed: {e_ssl}. Retrying with Port 587...")
         try:
-            # Attempt 2: Port 587 (STARTTLS) - Fallback
-            with smtplib.SMTP(target_host, 587, timeout=20) as server:
+            print(f"Attempting to send email to {receiver_email} via Port 587 (Host: {target_host})...")
+            with smtplib.SMTP(target_host, 587, timeout=30) as server:
                 server.ehlo()
                 server.starttls(context=context)
                 server.ehlo()
@@ -215,8 +173,26 @@ def send_smtp_email(receiver_email, subject, body_html, attachment_data=None, at
             print("Email sent successfully via Port 587!")
             return True
         except Exception as e_tls:
-            print(f"CRITICAL: Both Port 465 and 587 failed. Last error: {e_tls}")
-            return False
+            print(f"Port 587 failed with {target_host}: {e_tls}.")
+            
+            if use_ip:
+                print("Retrying with standard hostname 'smtp.gmail.com' on Port 587...")
+                try:
+                    std_context = ssl.create_default_context()
+                    with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as server:
+                        server.ehlo()
+                        server.starttls(context=std_context)
+                        server.ehlo()
+                        server.login(SENDER_EMAIL, final_password)
+                        server.sendmail(SENDER_EMAIL, receiver_email, message.as_string())
+                    print("Email sent successfully via Port 587 (Hostname)!")
+                    return True
+                except Exception as e_final:
+                    print(f"CRITICAL: All attempts failed. Last error: {e_final}")
+                    return False
+            else:
+                print(f"CRITICAL: Both Port 465 and 587 failed. Last error: {e_tls}")
+                return False
 
 
 # --- Frontend Routes ---
@@ -247,10 +223,7 @@ def intake_confirmation_page():
     return render_template('IntakeConfirm.html')
 
 def _get_available_dates_list(days_to_scan=90):
-    """
-    Internal helper to get a list of dates with "open for bookings" events.
-    Returns a list of strings in 'YYYY-MM-DD' format.
-    """
+    """Internal helper to get a list of dates with "open for bookings" events."""
     start_date = datetime.datetime.now(timezone.utc)
     end_date = start_date + timedelta(days=days_to_scan)
 
@@ -286,10 +259,7 @@ def _get_available_dates_list(days_to_scan=90):
 
 @app.route('/api/available-days', methods=['GET'])
 def get_available_days():
-    """
-    Scans a date range and returns a list of dates ('YYYY-MM-DD')
-    that have at least one "open for bookings" event.
-    """
+    """Scans a date range and returns a list of dates ('YYYY-MM-DD')."""
     available_dates = _get_available_dates_list()
     return jsonify(available_dates)
 
@@ -308,10 +278,8 @@ def get_availability():
     # --- New Availability Logic ---
     try:
         service_duration = int(duration_str)
-        # The total time blocked on the calendar includes a 10-minute buffer.
         total_block_duration = service_duration + 10
 
-        # Define the time window for the entire day in UTC
         start_of_day = datetime.datetime.fromisoformat(date_str).replace(hour=0, minute=0, second=0, tzinfo=timezone.utc)
         end_of_day = start_of_day + timedelta(days=1)
     except (ValueError, TypeError):
@@ -324,7 +292,6 @@ def get_availability():
         return jsonify({"error": "Could not connect to Google Calendar service."}), 500
 
     try:
-        # 1. Get all events for the day
         events_result = service.events().list(
             calendarId=CALENDAR_ID,
             timeMin=start_of_day.isoformat(),
@@ -334,7 +301,6 @@ def get_availability():
         ).execute()
         all_events = events_result.get('items', [])
 
-        # 2. Parse all 'open' and 'busy' slots into datetime objects
         open_windows = []
         for event in all_events:
             if event.get('summary', '').lower() == 'open for bookings' and 'dateTime' in event['start']:
@@ -351,26 +317,22 @@ def get_availability():
                     'end': datetime.datetime.fromisoformat(event['end']['dateTime'])
                 })
 
-        # 3. Generate all possible start times and validate them
         valid_start_times = []
-        time_slot_interval = timedelta(minutes=15) # Generate slots every 15 minutes
+        time_slot_interval = timedelta(minutes=15)
 
         for window in open_windows:
             potential_start = window['start']
             while potential_start < window['end']:
                 potential_end = potential_start + timedelta(minutes=total_block_duration)
 
-                # Ensure the entire appointment (including buffer) fits within the open window
                 if potential_end > window['end']:
-                    break # This slot won't fit, and no later ones will either
+                    break
 
-                # Check for overlap with any busy slots
                 is_valid = True
                 for busy in busy_slots:
-                    # Overlap condition: (StartA < EndB) and (EndA > StartB)
                     if potential_start < busy['end'] and potential_end > busy['start']:
                         is_valid = False
-                        break # Overlaps with a busy slot
+                        break
 
                 if is_valid:
                     valid_start_times.append(potential_start.isoformat())
@@ -396,7 +358,7 @@ def book_appointment():
     try:
         start_time = datetime.datetime.fromisoformat(data['start_time'])
         duration = int(data['service_duration'])
-        buffer = 10 # 10 minute buffer
+        buffer = 10
         end_time = start_time + timedelta(minutes=duration + buffer)
         summary = data['summary']
         description = data.get('description', '')
@@ -409,12 +371,10 @@ def book_appointment():
         return jsonify({"error": "Could not connect to Google Calendar service."}), 500
 
     # --- Overlap Prevention Logic ---
-    # 1. Define a small window around the event to check for overlaps, just in case.
     check_start = start_time - timedelta(hours=1)
     check_end = end_time + timedelta(hours=1)
 
     try:
-        # 2. Get all events in that window
         events_result = service.events().list(
             calendarId=CALENDAR_ID,
             timeMin=check_start.isoformat(),
@@ -423,28 +383,22 @@ def book_appointment():
         ).execute()
         all_events = events_result.get('items', [])
 
-        # 3. Find all "Busy" events (anything not marked as "open for bookings")
         busy_slots = [
             event for event in all_events
             if event.get('summary', '').lower() != 'open for bookings' and 'dateTime' in event['start']
         ]
 
-        # 4. Check for overlaps
         for busy_event in busy_slots:
             busy_start = datetime.datetime.fromisoformat(busy_event['start']['dateTime'])
             busy_end = datetime.datetime.fromisoformat(busy_event['end']['dateTime'])
-            # Overlap condition: (StartA < EndB) and (EndA > StartB)
             if start_time < busy_end and end_time > busy_start:
-                return jsonify({"error": "The selected time slot is no longer available. Please choose another time."}), 409 # 409 Conflict
+                return jsonify({"error": "The selected time slot is no longer available. Please choose another time."}), 409
 
     except Exception as e:
         print(f"ERROR: /api/book: Failed during overlap check: {e}")
         return jsonify({"error": "Could not verify appointment availability. Please try again."}), 500
 
-    # Add client details to the event description
-    # This was previously handled in the frontend, but now we're reverting to the backend handling it.
-    # The description from the frontend already contains client info.
-    full_description = description # Revert to original description
+    full_description = description
 
 
     created_event = create_event(service, summary, start_time, end_time, full_description, CALENDAR_ID)
@@ -460,7 +414,6 @@ def book_appointment():
     booking_time_formatted = local_start_time.strftime('%I:%M %p')
     client_first_name = client_info.get('first_name', 'Valued Client')
 
-    # Build the dynamic URL for the intake form (must be done in main thread)
     intake_params = {
         'firstName': client_info.get('first_name'),
         'lastName': client_info.get('last_name'),
@@ -472,7 +425,6 @@ def book_appointment():
 
     # --- Define Async Email Task ---
     def send_emails_background():
-        # 1. Client Email
         print(f"BACKGROUND_TASK: Starting to send emails for booking. Client email is: {client_email}")
         if client_email:
             email_subject = "Your Massage Appointment is Confirmed!"
@@ -487,10 +439,8 @@ def book_appointment():
             if client_email_sent:
                 print("BACKGROUND_TASK: Successfully sent confirmation email to client.")
             else:
-                # This will now appear in Render logs if it fails
                 print("BACKGROUND_TASK: WARNING: Failed to send confirmation email to client.")
 
-        # 2. Admin Email
         print("BACKGROUND_TASK: Starting to send admin notification email.")
         try:
             admin_email = SENDER_EMAIL
@@ -531,10 +481,9 @@ def _handle_intake_submission_background(data, pdf_output):
             # --- Part A: Update "Clients" sheet (if new client) ---
             client_email = data.get('email')
             if client_email:
-                # Read the email column from the "Clients" sheet to check for existence
                 result = sheets_service.spreadsheets().values().get(
                     spreadsheetId=SPREADSHEET_ID,
-                    range='Clients!C:C' # Assuming Email is in Column C
+                    range='Clients!C:C'
                 ).execute()
                 existing_emails = [item for sublist in result.get('values', []) for item in sublist]
 
@@ -546,7 +495,7 @@ def _handle_intake_submission_background(data, pdf_output):
                         client_email,
                         data.get('phone', ''),
                         data.get('dob', ''),
-                        data.get('address', '') # Now pulling address from form data
+                        data.get('address', '')
                     ]
                     sheets_service.spreadsheets().values().append(
                         spreadsheetId=SPREADSHEET_ID,
@@ -620,7 +569,7 @@ def submit_intake():
 
         # --- PDF Helper Functions ---
         def write_line(label, value, is_multiline=False):
-            if not value: return # Don't write empty fields
+            if not value: return
             pdf.set_font("Helvetica", "B", size=12)
             pdf.cell(40, 7, label, new_x=XPos.RIGHT, new_y=YPos.TOP)
             pdf.set_font("Helvetica", "", size=12)
@@ -655,14 +604,11 @@ def submit_intake():
 
         # --- Medical History ---
         write_section_header("Medical History")
-        # Restore the logic for medical history fields
         conditions = data.get('conditions')
-        # The form sends a single string of comma-separated values, not a list.
-        # So we don't need to join it, just use it as is.
-        if isinstance(conditions, list): conditions = ', '.join(conditions) # Safety check
+        if isinstance(conditions, list): conditions = ', '.join(conditions)
         write_line("Conditions:", conditions)
         write_line("Allergies:", data.get('allergies', 'N/A'), is_multiline=True)
-        pdf.ln(5) # Add some space before the images
+        pdf.ln(5)
 
         # --- Embed Body Chart Images Side-by-Side and Scaled ---
         front_image_data = data.get('drawingFront')
@@ -671,27 +617,24 @@ def submit_intake():
         if front_image_data or back_image_data:
             pdf.set_font("Helvetica", "B", size=14)
             pdf.cell(0, 10, "Problem Areas", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-            pdf.ln(2) # Small space after title
+            pdf.ln(2)
 
             page_width = pdf.w - 2 * pdf.l_margin
-            image_width = page_width / 2 - 5 # Half page width, with a small gap
+            image_width = page_width / 2 - 5
 
-            # Determine max available height for images on the current page
-            # Subtract bottom margin and some extra padding for safety
-            max_image_height_on_page = pdf.h - pdf.get_y() - pdf.b_margin - 15 # Revert to original padding
+            max_image_height_on_page = pdf.h - pdf.get_y() - pdf.b_margin - 15
 
             current_y_for_images = pdf.get_y()
-            max_drawn_height = 0 # To track the height of the tallest image placed
+            max_drawn_height = 0
 
             def embed_image(b64_string, x_pos):
-                nonlocal max_drawn_height # Allow modifying max_drawn_height from outer scope
+                nonlocal max_drawn_height
                 if not b64_string or 'base64,' not in b64_string: return
                 try:
                     image_data = base64.b64decode(b64_string.split('base64,')[1])
                     img = Image.open(io.BytesIO(image_data))
                     original_width, original_height = img.size
 
-                    # Calculate scaling factor to fit within the bounding box (image_width, max_image_height_on_page)
                     width_ratio = image_width / original_width
                     height_ratio = max_image_height_on_page / original_height
                     scale_ratio = min(width_ratio, height_ratio)
@@ -699,7 +642,7 @@ def submit_intake():
                     final_width = original_width * scale_ratio
                     final_height = original_height * scale_ratio
 
-                    if final_height <= 0: # Avoid division by zero or invalid image size
+                    if final_height <= 0:
                         raise ValueError("Calculated image height is zero or negative.")
 
                     with io.BytesIO() as output_stream:
@@ -714,22 +657,17 @@ def submit_intake():
                     pdf.set_xy(x_pos, current_y_for_images)
                     pdf.set_font("Helvetica", "", size=8)
                     pdf.multi_cell(image_width, 10, "[Image could not be rendered]", border=1, align='C')
-                    max_drawn_height = max(max_drawn_height, 10) # Account for error message height
+                    max_drawn_height = max(max_drawn_height, 10)
 
-            # Embed Front Image on the left
             embed_image(front_image_data, pdf.l_margin)
-            # Embed Back Image on the right
             embed_image(back_image_data, pdf.l_margin + image_width + 10)
 
-            # Advance the cursor after images are drawn
-            pdf.set_y(current_y_for_images + max_drawn_height + 10) # 10 for padding below images
+            pdf.set_y(current_y_for_images + max_drawn_height + 10)
 
         # Get PDF data as bytes
         pdf_output = pdf.output()
 
         # --- Start Background Tasks ---
-        # Move the slow operations (Google Sheets update, email sending) to a background thread
-        # to avoid client-side timeouts.
         threading.Thread(target=_handle_intake_submission_background, args=(data, pdf_output)).start()
 
         return jsonify({"message": "Intake form submitted successfully."}), 200
@@ -741,12 +679,8 @@ def submit_intake():
 # --- Debug Route (Add this to test emails directly) ---
 @app.route('/test-email')
 def test_email_route():
-    """
-    Debug route to test email configuration.
-    Visit /test-email in your browser to see the result.
-    """
+    """Debug route to test email configuration."""
     try:
-        # 1. Check Credentials
         email = SENDER_EMAIL
         password = APP_PASSWORD
 
@@ -757,17 +691,14 @@ def test_email_route():
         if not email or not password:
             return jsonify({"status": "error", "message": "Missing credentials", "log": log}), 500
 
-        # Mask password for safety in display
         masked_password = password[:4] + "*" * (len(password) - 4) if len(password) > 4 else "****"
         log.append(f"Sender: {email}")
         log.append(f"Password (masked): {masked_password}")
 
-        # 2. Try Port 465 (SSL)
         log.append("Attempting Port 465 (SSL)...")
         try:
             context = ssl.create_default_context()
             
-            # Force IPv4 for test route too
             test_host = "smtp.gmail.com"
             try:
                 test_host = socket.gethostbyname("smtp.gmail.com")
@@ -784,7 +715,7 @@ def test_email_route():
                 msg = MIMEText("This is a test email from your Render deployment. If you see this, emails are working!")
                 msg["Subject"] = "Test Email - Chel Massage"
                 msg["From"] = email
-                msg["To"] = email # Send to self
+                msg["To"] = email
                 
                 server.sendmail(email, email, msg.as_string())
                 log.append("Email sent command accepted.")
@@ -792,7 +723,6 @@ def test_email_route():
         except Exception as e:
             log.append(f"Port 465 failed: {str(e)}")
             
-        # If we get here, it failed.
         return jsonify({"status": "failure", "log": log}), 500
         
     except Exception as e:
@@ -800,5 +730,4 @@ def test_email_route():
 
 # --- Main Execution ---
 if __name__ == '__main__':
-    # The 'debug=True' flag enables auto-reloading when you save the file.
     app.run(debug=True, port=5000)
