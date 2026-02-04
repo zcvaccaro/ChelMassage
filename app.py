@@ -709,19 +709,25 @@ def test_email_route():
         log.append(f"Sender: {email}")
         log.append(f"Password (masked): {masked_password}")
 
-        log.append("Attempting Port 465 (SSL)...")
+        # Prepare context and host
+        context = ssl.create_default_context()
+        test_host = "smtp.gmail.com"
+        use_ip = False
         try:
-            context = ssl.create_default_context()
-            
-            test_host = "smtp.gmail.com"
-            try:
-                test_host = socket.gethostbyname("smtp.gmail.com")
-                context.check_hostname = False
-                context.verify_mode = ssl.CERT_NONE
-            except: pass
-            
-            final_password = password.replace(" ", "")
-            with smtplib.SMTP_SSL(test_host, 465, context=context, timeout=20) as server:
+            test_host = socket.gethostbyname("smtp.gmail.com")
+            use_ip = True
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+            log.append(f"Resolved IP: {test_host}")
+        except Exception as e:
+            log.append(f"DNS resolution failed: {e}")
+
+        final_password = password.replace(" ", "")
+
+        # Attempt 1: Port 465
+        log.append(f"Attempting Port 465 (SSL) to {test_host}...")
+        try:
+            with smtplib.SMTP_SSL(test_host, 465, context=context, timeout=30) as server:
                 log.append("Connected to 465.")
                 server.login(email, final_password)
                 log.append("Logged in successfully.")
@@ -737,6 +743,52 @@ def test_email_route():
         except Exception as e:
             log.append(f"Port 465 failed: {str(e)}")
             
+        # Attempt 2: Port 587
+        log.append(f"Attempting Port 587 (STARTTLS) to {test_host}...")
+        try:
+            with smtplib.SMTP(test_host, 587, timeout=30) as server:
+                log.append("Connected to 587.")
+                server.ehlo()
+                server.starttls(context=context)
+                server.ehlo()
+                server.login(email, final_password)
+                log.append("Logged in successfully.")
+                
+                msg = MIMEText("This is a test email from your Render deployment. If you see this, emails are working!")
+                msg["Subject"] = "Test Email - Chel Massage"
+                msg["From"] = email
+                msg["To"] = email
+                
+                server.sendmail(email, email, msg.as_string())
+                log.append("Email sent command accepted.")
+                return jsonify({"status": "success", "method": "Port 587", "log": log})
+        except Exception as e:
+            log.append(f"Port 587 failed: {str(e)}")
+
+        # Attempt 3: Port 587 with Hostname (if IP was used)
+        if use_ip:
+            log.append("Retrying Port 587 with standard hostname 'smtp.gmail.com'...")
+            try:
+                std_context = ssl.create_default_context()
+                with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as server:
+                    log.append("Connected to 587 (Hostname).")
+                    server.ehlo()
+                    server.starttls(context=std_context)
+                    server.ehlo()
+                    server.login(email, final_password)
+                    log.append("Logged in successfully.")
+                    
+                    msg = MIMEText("This is a test email from your Render deployment. If you see this, emails are working!")
+                    msg["Subject"] = "Test Email - Chel Massage"
+                    msg["From"] = email
+                    msg["To"] = email
+                    
+                    server.sendmail(email, email, msg.as_string())
+                    log.append("Email sent command accepted.")
+                    return jsonify({"status": "success", "method": "Port 587 (Hostname)", "log": log})
+            except Exception as e:
+                log.append(f"Port 587 (Hostname) failed: {str(e)}")
+
         return jsonify({"status": "failure", "log": log}), 500
         
     except Exception as e:
