@@ -22,6 +22,7 @@ from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
 from google.oauth2.service_account import Credentials
+from google.oauth2.credentials import Credentials as UserCredentials
 import io
 from googleapiclient.discovery import build, Resource
 from googleapiclient.errors import HttpError
@@ -98,6 +99,14 @@ def get_sheets_service():
 
 def get_gmail_service():
     """Authenticates and returns a Google Gmail API service object."""
+    # 1. Try OAuth2 User Token (token.json) - Required for @gmail.com addresses
+    if os.path.exists('token.json'):
+        try:
+            creds = UserCredentials.from_authorized_user_file('token.json', SCOPES)
+            return build('gmail', 'v1', credentials=creds)
+        except Exception as e:
+            print(f"Error loading token.json: {e}")
+
     creds = None
     try:
         creds = Credentials.from_service_account_file(
@@ -710,12 +719,16 @@ def test_email_route():
             log.append("Gmail Service built successfully.")
             
             # Diagnostic: Read email from key file (avoids scope issues with getProfile)
-            try:
-                with open(SERVICE_ACCOUNT_FILE, 'r') as f:
-                    key_data = json.load(f)
-                    log.append(f"Service Account Email: {key_data.get('client_email')}")
-            except Exception as e:
-                log.append(f"Could not read client_email from key: {e}")
+            if os.path.exists('token.json'):
+                log.append("Using OAuth2 User Token (token.json).")
+            else:
+                log.append("Using Service Account (key.json).")
+                try:
+                    with open(SERVICE_ACCOUNT_FILE, 'r') as f:
+                        key_data = json.load(f)
+                        log.append(f"Service Account Email: {key_data.get('client_email')}")
+                except Exception as e:
+                    log.append(f"Could not read client_email from key: {e}")
             
             success, error_msg = send_email(email, "Test Email - Chel Massage (API)", 
                                  "<p>This is a test email sent via the Gmail API on Render.</p>")
