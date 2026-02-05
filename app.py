@@ -156,58 +156,54 @@ def send_smtp_email(receiver_email, subject, body_html, attachment_data=None, at
     # Create a secure SSL context
     context = ssl.create_default_context()
 
-    target_host = "smtp.gmail.com"
-    use_ip = False
-    try:
-        target_host = socket.gethostbyname("smtp.gmail.com")
-        use_ip = True
-        context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE
-    except Exception as e:
-        print(f"Warning: IPv4 resolution failed: {e}")
-
     final_password = APP_PASSWORD.replace(" ", "")
 
+    # Resolve all IPv4 addresses for smtp.gmail.com
+    target_ips = []
     try:
-        print(f"Attempting to send email to {receiver_email} via Port 465 (Host: {target_host})...")
-        with smtplib.SMTP_SSL(target_host, 465, context=context, timeout=10) as server:
-            server.login(SENDER_EMAIL, final_password)
-            server.sendmail(SENDER_EMAIL, receiver_email, message.as_string())
-        print("Email sent successfully via Port 465!")
-        return True
-    except Exception as e_ssl:
-        print(f"Port 465 failed: {e_ssl}. Retrying with Port 587...")
+        # AF_INET forces IPv4, IPPROTO_TCP ensures we get TCP addresses
+        addr_info = socket.getaddrinfo("smtp.gmail.com", 465, family=socket.AF_INET, proto=socket.IPPROTO_TCP)
+        for info in addr_info:
+            ip = info[4][0]
+            if ip not in target_ips:
+                target_ips.append(ip)
+    except Exception as e:
+        print(f"Warning: DNS resolution failed: {e}")
+
+    # Fallback to hostname if no IPs found (unlikely)
+    if not target_ips:
+        target_ips = ["smtp.gmail.com"]
+
+    # Try each IP until one works
+    for target_host in target_ips:
         try:
-            print(f"Attempting to send email to {receiver_email} via Port 587 (Host: {target_host})...")
-            with smtplib.SMTP(target_host, 587, timeout=10) as server:
-                server.ehlo()
-                server.starttls(context=context)
-                server.ehlo()
+            print(f"Attempting to send email to {receiver_email} via Port 465 (Host: {target_host})...")
+            # We must disable hostname checking when connecting via IP
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+
+            with smtplib.SMTP_SSL(target_host, 465, context=context, timeout=10) as server:
                 server.login(SENDER_EMAIL, final_password)
                 server.sendmail(SENDER_EMAIL, receiver_email, message.as_string())
-            print("Email sent successfully via Port 587!")
+            print(f"Email sent successfully via Port 465 on {target_host}!")
             return True
-        except Exception as e_tls:
-            print(f"Port 587 failed with {target_host}: {e_tls}.")
+        except Exception as e_ssl:
+            print(f"Port 465 failed on {target_host}: {e_ssl}. Retrying Port 587...")
+            try:
+                with smtplib.SMTP(target_host, 587, timeout=10) as server:
+                    server.ehlo()
+                    server.starttls(context=context)
+                    server.ehlo()
+                    server.login(SENDER_EMAIL, final_password)
+                    server.sendmail(SENDER_EMAIL, receiver_email, message.as_string())
+                print(f"Email sent successfully via Port 587 on {target_host}!")
+                return True
+            except Exception as e_tls:
+                print(f"Port 587 failed on {target_host}: {e_tls}.")
+                continue # Try next IP
 
-            if use_ip:
-                print("Retrying with standard hostname 'smtp.gmail.com' on Port 587...")
-                try:
-                    std_context = ssl.create_default_context()
-                    with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
-                        server.ehlo()
-                        server.starttls(context=std_context)
-                        server.ehlo()
-                        server.login(SENDER_EMAIL, final_password)
-                        server.sendmail(SENDER_EMAIL, receiver_email, message.as_string())
-                    print("Email sent successfully via Port 587 (Hostname)!")
-                    return True
-                except Exception as e_final:
-                    print(f"CRITICAL: All attempts failed. Last error: {e_final}")
-                    return False
-            else:
-                print(f"CRITICAL: Both Port 465 and 587 failed. Last error: {e_tls}")
-                return False
+    print("CRITICAL: All attempts failed.")
+    return False
 
 
 # --- Frontend Routes ---
@@ -718,85 +714,67 @@ def test_email_route():
         log.append(f"Sender: {email}")
         log.append(f"Password (masked): {masked_password}")
 
-        # Prepare context and host
+        # Prepare context
         context = ssl.create_default_context()
-        test_host = "smtp.gmail.com"
-        use_ip = False
-        try:
-            test_host = socket.gethostbyname("smtp.gmail.com")
-            use_ip = True
-            context.check_hostname = False
-            context.verify_mode = ssl.CERT_NONE
-            log.append(f"Resolved IP: {test_host}")
-        except Exception as e:
-            log.append(f"DNS resolution failed: {e}")
-
         final_password = password.replace(" ", "")
 
-        # Attempt 1: Port 465
-        log.append(f"Attempting Port 465 (SSL) to {test_host}...")
+        # Resolve all IPv4 addresses
+        target_ips = []
         try:
-            with smtplib.SMTP_SSL(test_host, 465, context=context, timeout=10) as server:
-                log.append("Connected to 465.")
-                server.login(email, final_password)
-                log.append("Logged in successfully.")
-
-                msg = MIMEText("This is a test email from your Render deployment. If you see this, emails are working!")
-                msg["Subject"] = "Test Email - Chel Massage"
-                msg["From"] = email
-                msg["To"] = email
-
-                server.sendmail(email, email, msg.as_string())
-                log.append("Email sent command accepted.")
-                return jsonify({"status": "success", "method": "Port 465", "log": log})
+            addr_info = socket.getaddrinfo("smtp.gmail.com", 465, family=socket.AF_INET, proto=socket.IPPROTO_TCP)
+            for info in addr_info:
+                ip = info[4][0]
+                if ip not in target_ips:
+                    target_ips.append(ip)
+            log.append(f"Resolved IPv4 IPs: {target_ips}")
         except Exception as e:
-            log.append(f"Port 465 failed: {str(e)}")
+            log.append(f"DNS resolution failed: {e}")
+        
+        if not target_ips:
+            target_ips = ["smtp.gmail.com"]
 
-        # Attempt 2: Port 587
-        log.append(f"Attempting Port 587 (STARTTLS) to {test_host}...")
-        try:
-            with smtplib.SMTP(test_host, 587, timeout=10) as server:
-                log.append("Connected to 587.")
-                server.ehlo()
-                server.starttls(context=context)
-                server.ehlo()
-                server.login(email, final_password)
-                log.append("Logged in successfully.")
+        for target_host in target_ips:
+            log.append(f"Trying Host/IP: {target_host}")
+            
+            # Disable hostname check for IP connection
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
 
-                msg = MIMEText("This is a test email from your Render deployment. If you see this, emails are working!")
-                msg["Subject"] = "Test Email - Chel Massage"
-                msg["From"] = email
-                msg["To"] = email
-
-                server.sendmail(email, email, msg.as_string())
-                log.append("Email sent command accepted.")
-                return jsonify({"status": "success", "method": "Port 587", "log": log})
-        except Exception as e:
-            log.append(f"Port 587 failed: {str(e)}")
-
-        # Attempt 3: Port 587 with Hostname (if IP was used)
-        if use_ip:
-            log.append("Retrying Port 587 with standard hostname 'smtp.gmail.com'...")
+            # Try 465
             try:
-                std_context = ssl.create_default_context()
-                with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
-                    log.append("Connected to 587 (Hostname).")
-                    server.ehlo()
-                    server.starttls(context=std_context)
-                    server.ehlo()
+                log.append(f"  Attempting Port 465 (SSL)...")
+                with smtplib.SMTP_SSL(target_host, 465, context=context, timeout=10) as server:
                     server.login(email, final_password)
-                    log.append("Logged in successfully.")
-
+                    
                     msg = MIMEText("This is a test email from your Render deployment. If you see this, emails are working!")
                     msg["Subject"] = "Test Email - Chel Massage"
                     msg["From"] = email
                     msg["To"] = email
-
+                    
                     server.sendmail(email, email, msg.as_string())
                     log.append("Email sent command accepted.")
-                    return jsonify({"status": "success", "method": "Port 587 (Hostname)", "log": log})
+                    return jsonify({"status": "success", "method": f"Port 465 on {target_host}", "log": log})
             except Exception as e:
-                log.append(f"Port 587 (Hostname) failed: {str(e)}")
+                log.append(f"  Port 465 failed: {e}")
+
+            # Try 587
+            try:
+                log.append(f"  Attempting Port 587 (STARTTLS)...")
+                with smtplib.SMTP(target_host, 587, timeout=10) as server:
+                    server.ehlo()
+                    server.starttls(context=context)
+                    server.ehlo()
+                    server.login(email, final_password)
+                    
+                    msg = MIMEText("This is a test email from your Render deployment. If you see this, emails are working!")
+                    msg["Subject"] = "Test Email - Chel Massage"
+                    msg["From"] = email
+                    msg["To"] = email
+                    server.sendmail(email, email, msg.as_string())
+                    log.append("Email sent command accepted.")
+                    return jsonify({"status": "success", "method": f"Port 587 on {target_host}", "log": log})
+            except Exception as e:
+                log.append(f"  Port 587 failed: {e}")
 
         return jsonify({"status": "failure", "log": log}), 200
 
