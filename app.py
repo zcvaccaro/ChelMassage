@@ -172,13 +172,14 @@ def send_smtp_email(receiver_email, subject, body_html, attachment_data=None, at
 
     # Always add the hostname as a fallback option
     if "smtp.gmail.com" not in target_ips:
-        target_ips.append("smtp.gmail.com")
+        # Insert at the beginning to prioritize hostname
+        target_ips.insert(0, "smtp.gmail.com")
 
     # Try each IP until one works
     for target_host in target_ips:
         try:
             print(f"Attempting to send email to {receiver_email} via Port 465 (Host: {target_host})...")
-            
+
             # Reset context for each attempt
             context = ssl.create_default_context()
             if target_host != "smtp.gmail.com":
@@ -186,7 +187,7 @@ def send_smtp_email(receiver_email, subject, body_html, attachment_data=None, at
                 context.check_hostname = False
                 context.verify_mode = ssl.CERT_NONE
 
-            with smtplib.SMTP_SSL(target_host, 465, context=context, timeout=20) as server:
+            with smtplib.SMTP_SSL(target_host, 465, context=context, timeout=5) as server:
                 server.login(SENDER_EMAIL, final_password)
                 server.sendmail(SENDER_EMAIL, receiver_email, message.as_string())
             print(f"Email sent successfully via Port 465 on {target_host}!")
@@ -200,7 +201,7 @@ def send_smtp_email(receiver_email, subject, body_html, attachment_data=None, at
                     context.check_hostname = False
                     context.verify_mode = ssl.CERT_NONE
 
-                with smtplib.SMTP(target_host, 587, timeout=20) as server:
+                with smtplib.SMTP(target_host, 587, timeout=5) as server:
                     server.ehlo()
                     server.starttls(context=context)
                     server.ehlo()
@@ -742,7 +743,8 @@ def test_email_route():
         
         # Always add the hostname as a fallback option
         if "smtp.gmail.com" not in target_ips:
-            target_ips.append("smtp.gmail.com")
+            # Insert at the beginning to prioritize hostname
+            target_ips.insert(0, "smtp.gmail.com")
 
         for target_host in target_ips:
             log.append(f"Trying Host/IP: {target_host}")
@@ -755,8 +757,8 @@ def test_email_route():
 
             # Try 465
             try:
-                log.append(f"  Attempting Port 465 (SSL)...")
-                with smtplib.SMTP_SSL(target_host, 465, context=context, timeout=20) as server:
+                log.append(f"  Attempting Port 465 (SSL) with timeout=5s...")
+                with smtplib.SMTP_SSL(target_host, 465, context=context, timeout=5) as server:
                     server.login(email, final_password)
                     
                     msg = MIMEText("This is a test email from your Render deployment. If you see this, emails are working!")
@@ -772,14 +774,14 @@ def test_email_route():
 
             # Try 587
             try:
-                log.append(f"  Attempting Port 587 (STARTTLS)...")
+                log.append(f"  Attempting Port 587 (STARTTLS) with timeout=5s...")
                 # Re-configure context
                 context = ssl.create_default_context()
                 if target_host != "smtp.gmail.com":
                     context.check_hostname = False
                     context.verify_mode = ssl.CERT_NONE
 
-                with smtplib.SMTP(target_host, 587, timeout=20) as server:
+                with smtplib.SMTP(target_host, 587, timeout=5) as server:
                     server.ehlo()
                     server.starttls(context=context)
                     server.ehlo()
