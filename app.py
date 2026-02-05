@@ -716,6 +716,9 @@ def test_email_route():
 
         log.append("Starting connection attempts with forced IPv4 resolution...")
 
+        port_587_open = False
+        port_465_open = False
+
         # --- Diagnostic: Raw Socket Connection ---
         try:
             # Resolve explicitly to log it
@@ -724,15 +727,17 @@ def test_email_route():
             
             # Test Port 587 Raw
             try:
-                with socket.create_connection((target_ip, 587), timeout=5) as sock:
+                with socket.create_connection((target_ip, 587), timeout=2) as sock:
                     log.append(f"Diagnostic: Raw socket connection to {target_ip}:587 SUCCESS")
+                    port_587_open = True
             except Exception as e:
                 log.append(f"Diagnostic: Raw socket connection to {target_ip}:587 FAILED: {e}")
 
             # Test Port 465 Raw
             try:
-                with socket.create_connection((target_ip, 465), timeout=5) as sock:
+                with socket.create_connection((target_ip, 465), timeout=2) as sock:
                     log.append(f"Diagnostic: Raw socket connection to {target_ip}:465 SUCCESS")
+                    port_465_open = True
             except Exception as e:
                 log.append(f"Diagnostic: Raw socket connection to {target_ip}:465 FAILED: {e}")
         except Exception as e:
@@ -740,34 +745,40 @@ def test_email_route():
 
         with force_ipv4_resolution():
             # Try 587 (STARTTLS) first
-            try:
-                log.append(f"  Attempting smtp.gmail.com:587 (STARTTLS) with timeout=30s...")
-                with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as server:
-                    server.ehlo()
-                    server.starttls(context=context)
-                    server.ehlo()
-                    server.login(email, final_password)
-                    
-                    msg = MIMEText("This is a test email from your Render deployment. If you see this, emails are working!")
-                    msg["Subject"] = "Test Email - Chel Massage"
-                    msg["From"] = email
-                    msg["To"] = email
-                    server.sendmail(email, email, msg.as_string())
-                    log.append("Email sent command accepted.")
-                    return jsonify({"status": "success", "method": "smtp.gmail.com:587", "log": log})
-            except Exception as e:
-                log.append(f"  Port 587 failed: {e}")
+            if port_587_open:
+                try:
+                    log.append(f"  Attempting smtp.gmail.com:587 (STARTTLS) with timeout=5s...")
+                    with smtplib.SMTP("smtp.gmail.com", 587, timeout=5) as server:
+                        server.ehlo()
+                        server.starttls(context=context)
+                        server.ehlo()
+                        server.login(email, final_password)
+                        
+                        msg = MIMEText("This is a test email from your Render deployment. If you see this, emails are working!")
+                        msg["Subject"] = "Test Email - Chel Massage"
+                        msg["From"] = email
+                        msg["To"] = email
+                        server.sendmail(email, email, msg.as_string())
+                        log.append("Email sent command accepted.")
+                        return jsonify({"status": "success", "method": "smtp.gmail.com:587", "log": log})
+                except Exception as e:
+                    log.append(f"  Port 587 failed: {e}")
+            else:
+                log.append("  Skipping Port 587 SMTP attempt because raw socket failed.")
 
             # Try 465 (SSL)
-            try:
-                log.append(f"  Attempting smtp.gmail.com:465 (SSL) with timeout=30s...")
-                with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context, timeout=30) as server:
-                    server.login(email, final_password)
-                    server.sendmail(email, email, msg.as_string())
-                    log.append("Email sent command accepted.")
-                    return jsonify({"status": "success", "method": "smtp.gmail.com:465", "log": log})
-            except Exception as e:
-                log.append(f"  Port 465 failed: {e}")
+            if port_465_open:
+                try:
+                    log.append(f"  Attempting smtp.gmail.com:465 (SSL) with timeout=5s...")
+                    with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context, timeout=5) as server:
+                        server.login(email, final_password)
+                        server.sendmail(email, email, msg.as_string())
+                        log.append("Email sent command accepted.")
+                        return jsonify({"status": "success", "method": "smtp.gmail.com:465", "log": log})
+                except Exception as e:
+                    log.append(f"  Port 465 failed: {e}")
+            else:
+                log.append("  Skipping Port 465 SMTP attempt because raw socket failed.")
 
         return jsonify({"status": "failure", "log": log}), 200
 
