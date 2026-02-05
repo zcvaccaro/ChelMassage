@@ -170,19 +170,23 @@ def send_smtp_email(receiver_email, subject, body_html, attachment_data=None, at
     except Exception as e:
         print(f"Warning: DNS resolution failed: {e}")
 
-    # Fallback to hostname if no IPs found (unlikely)
-    if not target_ips:
-        target_ips = ["smtp.gmail.com"]
+    # Always add the hostname as a fallback option
+    if "smtp.gmail.com" not in target_ips:
+        target_ips.append("smtp.gmail.com")
 
     # Try each IP until one works
     for target_host in target_ips:
         try:
             print(f"Attempting to send email to {receiver_email} via Port 465 (Host: {target_host})...")
-            # We must disable hostname checking when connecting via IP
-            context.check_hostname = False
-            context.verify_mode = ssl.CERT_NONE
+            
+            # Reset context for each attempt
+            context = ssl.create_default_context()
+            if target_host != "smtp.gmail.com":
+                # We must disable hostname checking when connecting via IP
+                context.check_hostname = False
+                context.verify_mode = ssl.CERT_NONE
 
-            with smtplib.SMTP_SSL(target_host, 465, context=context, timeout=10) as server:
+            with smtplib.SMTP_SSL(target_host, 465, context=context, timeout=20) as server:
                 server.login(SENDER_EMAIL, final_password)
                 server.sendmail(SENDER_EMAIL, receiver_email, message.as_string())
             print(f"Email sent successfully via Port 465 on {target_host}!")
@@ -190,7 +194,13 @@ def send_smtp_email(receiver_email, subject, body_html, attachment_data=None, at
         except Exception as e_ssl:
             print(f"Port 465 failed on {target_host}: {e_ssl}. Retrying Port 587...")
             try:
-                with smtplib.SMTP(target_host, 587, timeout=10) as server:
+                # Re-configure context for Port 587 attempt
+                context = ssl.create_default_context()
+                if target_host != "smtp.gmail.com":
+                    context.check_hostname = False
+                    context.verify_mode = ssl.CERT_NONE
+
+                with smtplib.SMTP(target_host, 587, timeout=20) as server:
                     server.ehlo()
                     server.starttls(context=context)
                     server.ehlo()
@@ -730,20 +740,23 @@ def test_email_route():
         except Exception as e:
             log.append(f"DNS resolution failed: {e}")
         
-        if not target_ips:
-            target_ips = ["smtp.gmail.com"]
+        # Always add the hostname as a fallback option
+        if "smtp.gmail.com" not in target_ips:
+            target_ips.append("smtp.gmail.com")
 
         for target_host in target_ips:
             log.append(f"Trying Host/IP: {target_host}")
             
-            # Disable hostname check for IP connection
-            context.check_hostname = False
-            context.verify_mode = ssl.CERT_NONE
+            # Reset context for each attempt
+            context = ssl.create_default_context()
+            if target_host != "smtp.gmail.com":
+                context.check_hostname = False
+                context.verify_mode = ssl.CERT_NONE
 
             # Try 465
             try:
                 log.append(f"  Attempting Port 465 (SSL)...")
-                with smtplib.SMTP_SSL(target_host, 465, context=context, timeout=10) as server:
+                with smtplib.SMTP_SSL(target_host, 465, context=context, timeout=20) as server:
                     server.login(email, final_password)
                     
                     msg = MIMEText("This is a test email from your Render deployment. If you see this, emails are working!")
@@ -760,7 +773,13 @@ def test_email_route():
             # Try 587
             try:
                 log.append(f"  Attempting Port 587 (STARTTLS)...")
-                with smtplib.SMTP(target_host, 587, timeout=10) as server:
+                # Re-configure context
+                context = ssl.create_default_context()
+                if target_host != "smtp.gmail.com":
+                    context.check_hostname = False
+                    context.verify_mode = ssl.CERT_NONE
+
+                with smtplib.SMTP(target_host, 587, timeout=20) as server:
                     server.ehlo()
                     server.starttls(context=context)
                     server.ehlo()
