@@ -2,6 +2,7 @@
 # === Chel Massage Backend Plan ===
 import base64
 import datetime
+import json
 import os
 import socket
 import threading
@@ -708,9 +709,13 @@ def test_email_route():
             
             log.append("Gmail Service built successfully.")
             
-            # Diagnostic: Check who the service account thinks it is
-            profile = service.users().getProfile(userId='me').execute()
-            log.append(f"Service Account Authenticated As: {profile.get('emailAddress')}")
+            # Diagnostic: Read email from key file (avoids scope issues with getProfile)
+            try:
+                with open(SERVICE_ACCOUNT_FILE, 'r') as f:
+                    key_data = json.load(f)
+                    log.append(f"Service Account Email: {key_data.get('client_email')}")
+            except Exception as e:
+                log.append(f"Could not read client_email from key: {e}")
             
             success, error_msg = send_email(email, "Test Email - Chel Massage (API)", 
                                  "<p>This is a test email sent via the Gmail API on Render.</p>")
