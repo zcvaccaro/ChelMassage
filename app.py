@@ -160,7 +160,7 @@ def send_email(receiver_email, subject, body_html, attachment_data=None, attachm
     service = get_gmail_service()
     if not service:
         print("CRITICAL ERROR: Could not build Gmail service.")
-        return False
+        return False, "Could not build Gmail service."
 
     message = MIMEMultipart()
     message["Subject"] = subject
@@ -186,13 +186,15 @@ def send_email(receiver_email, subject, body_html, attachment_data=None, attachm
         # userId='me' refers to the service account itself
         sent_message = service.users().messages().send(userId='me', body=body).execute()
         print(f"Email sent successfully! Message ID: {sent_message['id']}")
-        return True
+        return True, None
     except HttpError as error:
-        print(f'An error occurred sending email: {error}')
-        return False
+        error_msg = f'An error occurred sending email: {error}'
+        print(error_msg)
+        return False, error_msg
     except Exception as e:
-        print(f"Unexpected error sending email: {e}")
-        return False
+        error_msg = f"Unexpected error sending email: {e}"
+        print(error_msg)
+        return False, error_msg
 
 
 # --- Frontend Routes ---
@@ -435,7 +437,7 @@ def book_appointment():
             <p><a href="{intake_url}" style="padding: 10px 15px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px;">Complete Intake Form</a></p>
             <p>Thank you,<br>Chelsea Vaccaro Massage Therapy</p>
             """
-            client_email_sent = send_email(client_email, email_subject, email_body_html)
+            client_email_sent, _ = send_email(client_email, email_subject, email_body_html)
             if client_email_sent:
                 print("BACKGROUND_TASK: Successfully sent confirmation email to client.")
             else:
@@ -455,7 +457,7 @@ def book_appointment():
             <p><strong>Comments:</strong> {data.get('description', '').replace('Comments: ', '')}</p>
             <p>The event has been added to your Google Calendar.</p>
             """
-            admin_email_sent = send_email(admin_email, admin_subject, admin_body_html)
+            admin_email_sent, _ = send_email(admin_email, admin_subject, admin_body_html)
             if admin_email_sent:
                 print("BACKGROUND_TASK: Successfully sent notification email to admin.")
             else:
@@ -534,7 +536,7 @@ def _handle_intake_submission_background(data, pdf_output):
         <p>The completed form is attached as a PDF.</p>
         """
         attachment_filename = f"IntakeForm_{data.get('lastName', '')}_{data.get('firstName', '')}.pdf"
-        email_sent = send_email(
+        email_sent, _ = send_email(
             receiver_email=admin_email,
             subject=email_subject,
             body_html=email_body_html,
@@ -706,14 +708,18 @@ def test_email_route():
             
             log.append("Gmail Service built successfully.")
             
-            success = send_email(email, "Test Email - Chel Massage (API)", 
+            # Diagnostic: Check who the service account thinks it is
+            profile = service.users().getProfile(userId='me').execute()
+            log.append(f"Service Account Authenticated As: {profile.get('emailAddress')}")
+            
+            success, error_msg = send_email(email, "Test Email - Chel Massage (API)", 
                                  "<p>This is a test email sent via the Gmail API on Render.</p>")
             
             if success:
                 log.append("SUCCESS: Email sent via Gmail API.")
                 return jsonify({"status": "success", "log": log}), 200
             else:
-                log.append("FAIL: send_email function returned False.")
+                log.append(f"FAIL: {error_msg}")
                 return jsonify({"status": "failure", "log": log}), 200
                 
         except Exception as e:
