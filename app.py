@@ -179,7 +179,7 @@ def send_smtp_email(receiver_email, subject, body_html, attachment_data=None, at
         # Try Port 587 (STARTTLS) first
         try:
             print(f"Attempting to send email to {receiver_email} via Port 587 (smtp.gmail.com)...")
-            with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as server:
+            with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as server:
                 server.ehlo()
                 server.starttls(context=context)
                 server.ehlo()
@@ -192,7 +192,7 @@ def send_smtp_email(receiver_email, subject, body_html, attachment_data=None, at
 
             # Try Port 465 (SSL)
             try:
-                with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context, timeout=15) as server:
+                with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context, timeout=30) as server:
                     server.login(SENDER_EMAIL, final_password)
                     server.sendmail(SENDER_EMAIL, receiver_email, message.as_string())
                 print(f"Email sent successfully via Port 465!")
@@ -716,11 +716,33 @@ def test_email_route():
 
         log.append("Starting connection attempts with forced IPv4 resolution...")
 
+        # --- Diagnostic: Raw Socket Connection ---
+        try:
+            # Resolve explicitly to log it
+            target_ip = socket.gethostbyname("smtp.gmail.com")
+            log.append(f"Diagnostic: Resolved smtp.gmail.com to {target_ip}")
+            
+            # Test Port 587 Raw
+            try:
+                with socket.create_connection((target_ip, 587), timeout=5) as sock:
+                    log.append(f"Diagnostic: Raw socket connection to {target_ip}:587 SUCCESS")
+            except Exception as e:
+                log.append(f"Diagnostic: Raw socket connection to {target_ip}:587 FAILED: {e}")
+
+            # Test Port 465 Raw
+            try:
+                with socket.create_connection((target_ip, 465), timeout=5) as sock:
+                    log.append(f"Diagnostic: Raw socket connection to {target_ip}:465 SUCCESS")
+            except Exception as e:
+                log.append(f"Diagnostic: Raw socket connection to {target_ip}:465 FAILED: {e}")
+        except Exception as e:
+            log.append(f"Diagnostic: DNS/Socket checks failed: {e}")
+
         with force_ipv4_resolution():
             # Try 587 (STARTTLS) first
             try:
-                log.append(f"  Attempting smtp.gmail.com:587 (STARTTLS) with timeout=15s...")
-                with smtplib.SMTP("smtp.gmail.com", 587, timeout=15) as server:
+                log.append(f"  Attempting smtp.gmail.com:587 (STARTTLS) with timeout=30s...")
+                with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as server:
                     server.ehlo()
                     server.starttls(context=context)
                     server.ehlo()
@@ -738,8 +760,8 @@ def test_email_route():
 
             # Try 465 (SSL)
             try:
-                log.append(f"  Attempting smtp.gmail.com:465 (SSL) with timeout=15s...")
-                with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context, timeout=15) as server:
+                log.append(f"  Attempting smtp.gmail.com:465 (SSL) with timeout=30s...")
+                with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context, timeout=30) as server:
                     server.login(email, final_password)
                     server.sendmail(email, email, msg.as_string())
                     log.append("Email sent command accepted.")
