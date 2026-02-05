@@ -2,15 +2,9 @@
 # === Chel Massage Backend Plan ===
 import base64
 import datetime
-import json
 import os
-import socket
 import threading
 from urllib.parse import urlencode
-import contextlib
-import traceback
-import smtplib
-import ssl
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 from PIL import Image
@@ -687,67 +681,6 @@ def submit_intake():
     except Exception as e:
         print(f"ERROR: /api/submit-intake: {e}")
         return jsonify({"error": "Server error while processing the form."}), 500
-
-# --- Debug Route (Add this to test emails directly) ---
-@app.route('/test-email')
-def test_email_route():
-    """Debug route to test email configuration."""
-    try:
-        email = SENDER_EMAIL
-        log = []
-        # --- 1. Check System Configuration ---
-        log.append(f"Current Working Directory: {os.getcwd()}")
-        if os.path.exists(SERVICE_ACCOUNT_FILE):
-            log.append(f"PASS: '{SERVICE_ACCOUNT_FILE}' found.")
-        else:
-            log.append(f"FAIL: '{SERVICE_ACCOUNT_FILE}' NOT found. Please add it to Render Secret Files.")
-            # List files to help debug
-            log.append(f"Files in root: {os.listdir('.')}")
-
-        if "SENDER_EMAIL" not in os.environ:
-            log.append("WARNING: SENDER_EMAIL env var not set.")
-
-        log.append(f"Target Recipient: {email}")
-        log.append("Attempting to send via Gmail API (Port 443)...")
-
-        try:
-            service = get_gmail_service()
-            if not service:
-                log.append("FAIL: Could not build Gmail service. Check key.json.")
-                return jsonify({"status": "failure", "log": log}), 200
-            
-            log.append("Gmail Service built successfully.")
-            
-            # Diagnostic: Read email from key file (avoids scope issues with getProfile)
-            if os.path.exists('token.json'):
-                log.append("Using OAuth2 User Token (token.json).")
-            else:
-                log.append("Using Service Account (key.json).")
-                try:
-                    with open(SERVICE_ACCOUNT_FILE, 'r') as f:
-                        key_data = json.load(f)
-                        log.append(f"Service Account Email: {key_data.get('client_email')}")
-                except Exception as e:
-                    log.append(f"Could not read client_email from key: {e}")
-            
-            success, error_msg = send_email(email, "Test Email - Chel Massage (API)", 
-                                 "<p>This is a test email sent via the Gmail API on Render.</p>")
-            
-            if success:
-                log.append("SUCCESS: Email sent via Gmail API.")
-                return jsonify({"status": "success", "log": log}), 200
-            else:
-                log.append(f"FAIL: {error_msg}")
-                return jsonify({"status": "failure", "log": log}), 200
-                
-        except Exception as e:
-            log.append(f"CRITICAL ERROR: {e}")
-            return jsonify({"status": "failure", "log": log}), 200
-
-    except Exception as e:
-        print("ERROR in /test-email:")
-        traceback.print_exc()
-        return jsonify({"status": "critical_error", "error": str(e)}), 200
 
 # --- Main Execution ---
 if __name__ == '__main__':
