@@ -95,6 +95,26 @@ def get_sheets_service():
         print(f"An error occurred building the Sheets service: {e}")
         return None
 
+def get_gmail_service():
+    """Authenticates and returns a Google Gmail API service object."""
+    creds = None
+    try:
+        creds = Credentials.from_service_account_file(
+            SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+    except FileNotFoundError:
+        print(f"Error: The service account key file was not found at '{SERVICE_ACCOUNT_FILE}'.")
+        return None
+    except Exception as e:
+        print(f"An error occurred loading credentials for Gmail: {e}")
+        return None
+
+    try:
+        service = build('gmail', 'v1', credentials=creds)
+        return service
+    except Exception as e:
+        print(f"An error occurred building the Gmail service: {e}")
+        return None
+
 def get_free_busy(service, start_time, end_time, calendar_ids):
     """
     Retrieves free/busy information for a given calendar.
@@ -134,32 +154,21 @@ def create_event(service, summary, start_time, end_time, description="", calenda
         print(f'An error occurred: {error}')
         return None
 
-@contextlib.contextmanager
-def force_ipv4_resolution():
-    """Context manager to force IPv4 DNS resolution."""
-    original_getaddrinfo = socket.getaddrinfo
+def send_email(receiver_email, subject, body_html, attachment_data=None, attachment_filename=None):
+    """Sends an email using the Google Gmail API (Port 443)."""
     
-    def ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-        # Force IPv4 family (AF_INET) regardless of what was requested
-        return original_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
-
-    socket.getaddrinfo = ipv4_only_getaddrinfo
-    try:
-        yield
-    finally:
-        socket.getaddrinfo = original_getaddrinfo
-
-def send_smtp_email(receiver_email, subject, body_html, attachment_data=None, attachment_filename=None):
-    """Sends an email using smtplib and an App Password."""
-
-    if not SENDER_EMAIL or not APP_PASSWORD:
-        print("CRITICAL ERROR: SENDER_EMAIL or APP_PASSWORD environment variables are not set. Cannot send email.")
+    service = get_gmail_service()
+    if not service:
+        print("CRITICAL ERROR: Could not build Gmail service.")
         return False
 
     message = MIMEMultipart()
     message["Subject"] = subject
     message["From"] = SENDER_EMAIL
     message["To"] = receiver_email
+    # Ensure replies go to the business email, even if sent by the service account
+    message["Reply-To"] = SENDER_EMAIL
+    
     message.attach(MIMEText(body_html, "html"))
 
     if attachment_data and attachment_filename:
@@ -169,37 +178,21 @@ def send_smtp_email(receiver_email, subject, body_html, attachment_data=None, at
         part.add_header("Content-Disposition", f"attachment; filename= {attachment_filename}")
         message.attach(part)
 
-    # Create a secure SSL context
-    context = ssl.create_default_context()
+    # Encode the message for the Gmail API
+    raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+    body = {'raw': raw_message}
 
-    final_password = APP_PASSWORD.replace(" ", "")
-
-    # Use the context manager to force IPv4 while using the hostname
-    with force_ipv4_resolution():
-        # Try Port 587 (STARTTLS) first
-        try:
-            print(f"Attempting to send email to {receiver_email} via Port 587 (smtp.gmail.com)...")
-            with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as server:
-                server.ehlo()
-                server.starttls(context=context)
-                server.ehlo()
-                server.login(SENDER_EMAIL, final_password)
-                server.sendmail(SENDER_EMAIL, receiver_email, message.as_string())
-            print(f"Email sent successfully via Port 587!")
-            return True
-        except Exception as e_tls:
-            print(f"Port 587 failed: {e_tls}. Retrying Port 465...")
-
-            # Try Port 465 (SSL)
-            try:
-                with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context, timeout=30) as server:
-                    server.login(SENDER_EMAIL, final_password)
-                    server.sendmail(SENDER_EMAIL, receiver_email, message.as_string())
-                print(f"Email sent successfully via Port 465!")
-                return True
-            except Exception as e_ssl:
-                print(f"Port 465 failed: {e_ssl}.")
-                return False
+    try:
+        # userId='me' refers to the service account itself
+        sent_message = service.users().messages().send(userId='me', body=body).execute()
+        print(f"Email sent successfully! Message ID: {sent_message['id']}")
+        return True
+    except HttpError as error:
+        print(f'An error occurred sending email: {error}')
+        return False
+    except Exception as e:
+        print(f"Unexpected error sending email: {e}")
+        return False
 
 
 # --- Frontend Routes ---
@@ -442,7 +435,7 @@ def book_appointment():
             <p><a href="{intake_url}" style="padding: 10px 15px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px;">Complete Intake Form</a></p>
             <p>Thank you,<br>Chelsea Vaccaro Massage Therapy</p>
             """
-            client_email_sent = send_smtp_email(client_email, email_subject, email_body_html)
+            client_email_sent = send_email(client_email, email_subject, email_body_html)
             if client_email_sent:
                 print("BACKGROUND_TASK: Successfully sent confirmation email to client.")
             else:
@@ -462,7 +455,7 @@ def book_appointment():
             <p><strong>Comments:</strong> {data.get('description', '').replace('Comments: ', '')}</p>
             <p>The event has been added to your Google Calendar.</p>
             """
-            admin_email_sent = send_smtp_email(admin_email, admin_subject, admin_body_html)
+            admin_email_sent = send_email(admin_email, admin_subject, admin_body_html)
             if admin_email_sent:
                 print("BACKGROUND_TASK: Successfully sent notification email to admin.")
             else:
@@ -541,7 +534,7 @@ def _handle_intake_submission_background(data, pdf_output):
         <p>The completed form is attached as a PDF.</p>
         """
         attachment_filename = f"IntakeForm_{data.get('lastName', '')}_{data.get('firstName', '')}.pdf"
-        email_sent = send_smtp_email(
+        email_sent = send_email(
             receiver_email=admin_email,
             subject=email_subject,
             body_html=email_body_html,
@@ -551,7 +544,7 @@ def _handle_intake_submission_background(data, pdf_output):
         if email_sent:
             print("BACKGROUND_TASK: Successfully sent intake form email to admin.")
         else:
-            raise Exception("send_smtp_email returned False for intake form.")
+            raise Exception("send_email returned False for intake form.")
     except Exception as e:
         print(f"ERROR (background): Failed to send intake form email: {e}")
 
@@ -689,7 +682,6 @@ def test_email_route():
     """Debug route to test email configuration."""
     try:
         email = SENDER_EMAIL
-        password = APP_PASSWORD
         log = []
         # --- 1. Check System Configuration ---
         log.append(f"Current Working Directory: {os.getcwd()}")
@@ -703,84 +695,30 @@ def test_email_route():
         if "SENDER_EMAIL" not in os.environ:
             log.append("WARNING: SENDER_EMAIL env var not set.")
 
-        if not email or not password:
-            return jsonify({"status": "error", "message": "Missing credentials", "log": log}), 200
+        log.append(f"Target Recipient: {email}")
+        log.append("Attempting to send via Gmail API (Port 443)...")
 
-        masked_password = password[:4] + "*" * (len(password) - 4) if len(password) > 4 else "****"
-        log.append(f"Sender: {email}")
-        log.append(f"Password (masked): {masked_password}")
-
-        # Prepare context
-        context = ssl.create_default_context()
-        final_password = password.replace(" ", "")
-
-        log.append("Starting connection attempts with forced IPv4 resolution...")
-
-        port_587_open = False
-        port_465_open = False
-
-        # --- Diagnostic: Raw Socket Connection ---
         try:
-            # Resolve explicitly to log it
-            target_ip = socket.gethostbyname("smtp.gmail.com")
-            log.append(f"Diagnostic: Resolved smtp.gmail.com to {target_ip}")
+            service = get_gmail_service()
+            if not service:
+                log.append("FAIL: Could not build Gmail service. Check key.json.")
+                return jsonify({"status": "failure", "log": log}), 200
             
-            # Test Port 587 Raw
-            try:
-                with socket.create_connection((target_ip, 587), timeout=2) as sock:
-                    log.append(f"Diagnostic: Raw socket connection to {target_ip}:587 SUCCESS")
-                    port_587_open = True
-            except Exception as e:
-                log.append(f"Diagnostic: Raw socket connection to {target_ip}:587 FAILED: {e}")
-
-            # Test Port 465 Raw
-            try:
-                with socket.create_connection((target_ip, 465), timeout=2) as sock:
-                    log.append(f"Diagnostic: Raw socket connection to {target_ip}:465 SUCCESS")
-                    port_465_open = True
-            except Exception as e:
-                log.append(f"Diagnostic: Raw socket connection to {target_ip}:465 FAILED: {e}")
+            log.append("Gmail Service built successfully.")
+            
+            success = send_email(email, "Test Email - Chel Massage (API)", 
+                                 "<p>This is a test email sent via the Gmail API on Render.</p>")
+            
+            if success:
+                log.append("SUCCESS: Email sent via Gmail API.")
+                return jsonify({"status": "success", "log": log}), 200
+            else:
+                log.append("FAIL: send_email function returned False.")
+                return jsonify({"status": "failure", "log": log}), 200
+                
         except Exception as e:
-            log.append(f"Diagnostic: DNS/Socket checks failed: {e}")
-
-        with force_ipv4_resolution():
-            # Try 587 (STARTTLS) first
-            if port_587_open:
-                try:
-                    log.append(f"  Attempting smtp.gmail.com:587 (STARTTLS) with timeout=5s...")
-                    with smtplib.SMTP("smtp.gmail.com", 587, timeout=5) as server:
-                        server.ehlo()
-                        server.starttls(context=context)
-                        server.ehlo()
-                        server.login(email, final_password)
-                        
-                        msg = MIMEText("This is a test email from your Render deployment. If you see this, emails are working!")
-                        msg["Subject"] = "Test Email - Chel Massage"
-                        msg["From"] = email
-                        msg["To"] = email
-                        server.sendmail(email, email, msg.as_string())
-                        log.append("Email sent command accepted.")
-                        return jsonify({"status": "success", "method": "smtp.gmail.com:587", "log": log})
-                except Exception as e:
-                    log.append(f"  Port 587 failed: {e}")
-            else:
-                log.append("  Skipping Port 587 SMTP attempt because raw socket failed.")
-
-            # Try 465 (SSL)
-            if port_465_open:
-                try:
-                    log.append(f"  Attempting smtp.gmail.com:465 (SSL) with timeout=5s...")
-                    with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context, timeout=5) as server:
-                        server.login(email, final_password)
-                        server.sendmail(email, email, msg.as_string())
-                        log.append("Email sent command accepted.")
-                        return jsonify({"status": "success", "method": "smtp.gmail.com:465", "log": log})
-                except Exception as e:
-                    log.append(f"  Port 465 failed: {e}")
-            else:
-                log.append("  Skipping Port 465 SMTP attempt because raw socket failed.")
-
-        return jsonify({"status": "failure", "log": log}), 200
+            log.append(f"CRITICAL ERROR: {e}")
+            return jsonify({"status": "failure", "log": log}), 200
 
     except Exception as e:
         print("ERROR in /test-email:")
