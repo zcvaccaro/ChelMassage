@@ -684,4 +684,8 @@ def submit_intake():
 
 # --- Main Execution ---
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    # For deployment, Render sets the PORT environment variable.
+    # We default to 5000 for local development.
+    port = int(os.environ.get('PORT', 5000))
+    # Bind to '0.0.0.0' to be accessible in a containerized environment.
+    app.run(host='0.0.0.0', port=port, debug=False)
