@@ -402,6 +402,22 @@ footer {
   .about {
     flex-direction: column-reverse;
   }
+
+  /* Fix header text size on mobile */
+  .logo {
+    font-size: 1.5rem;
+    max-width: 60%;
+  }
+  .logo small {
+    font-size: 0.9rem;
+  }
+
+  /* Fix about images stretching on mobile */
+  .about img, #about-me img {
+    flex: none;
+    width: auto;
+    max-height: 40vh;
+  }
 }
 
 /* --- Grid Breakpoints for Services --- */
