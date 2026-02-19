@@ -121,7 +121,7 @@ document.addEventListener("DOMContentLoaded", () => {
       overlay.style.display = 'none';
       originalCard = null;
       isAnimating = false;
-      if (url) {
+      if (url && typeof url === 'string') {
         window.location.href = url; // Navigate to the booking page
       }
     }, 400); // Match the animation duration
