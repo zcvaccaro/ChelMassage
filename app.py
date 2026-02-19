@@ -160,7 +160,7 @@ def create_event(service, summary, start_time, end_time, description="", calenda
 
 def send_email(receiver_email, subject, body_html, attachment_data=None, attachment_filename=None):
     """Sends an email using the Google Gmail API (Port 443)."""
-    
+
     service = get_gmail_service()
     if not service:
         print("CRITICAL ERROR: Could not build Gmail service.")
@@ -172,7 +172,7 @@ def send_email(receiver_email, subject, body_html, attachment_data=None, attachm
     message["To"] = receiver_email
     # Ensure replies go to the business email, even if sent by the service account
     message["Reply-To"] = SENDER_EMAIL
-    
+
     message.attach(MIMEText(body_html, "html"))
 
     if attachment_data and attachment_filename:

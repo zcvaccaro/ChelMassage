@@ -96,7 +96,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 start_time: startTime.toISOString(),
                 service_duration: parseInt(lengthSelect.value),
                 summary: `${serviceName} for ${clientName}`,
-                // The backend will now construct the full description
                 description: `Comments: ${formData.get('comments')}`
             };
 
