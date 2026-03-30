@@ -325,6 +325,7 @@ def get_availability():
 
         valid_start_times = []
         time_slot_interval = timedelta(minutes=15)
+        now = datetime.datetime.now(timezone.utc)
 
         for window in open_windows:
             potential_start = window['start']
@@ -333,6 +334,11 @@ def get_availability():
 
                 if potential_end > window['end']:
                     break
+
+                # Skip times that have already passed if booking for today
+                if potential_start <= now:
+                    potential_start += time_slot_interval
+                    continue
 
                 is_valid = True
                 for busy in busy_slots:

@@ -3,8 +3,62 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Massage Therapy | Chelsea Vaccaro</title>
+  <title>Massage Therapy New Paltz, NY | Chelsea Vaccaro Massage Therapy</title>
+  <meta name="description" content="Experience expert massage therapy in New Paltz, NY. Chelsea Vaccaro offers Deep Tissue, Swedish, Prenatal, and Myofascial Release to help you heal and refresh. Book your appointment online today.">
+  <meta name="keywords" content="Massage Therapy New Paltz, Deep Tissue Massage NY, Swedish Massage, Prenatal Massage New Paltz, Myofascial Release, Chelsea Vaccaro Massage">
+  
+  <!-- Open Graph / Facebook -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://www.chelseavaccaro.com/">
+  <meta property="og:title" content="Massage Therapy New Paltz, NY | Chelsea Vaccaro">
+  <meta property="og:description" content="Expert massage therapy including Deep Tissue, Swedish, and Prenatal care in the heart of New Paltz.">
+  <meta property="og:image" content="{{ url_for('static', filename='Images/Hero.png', _external=True) }}">
+
+  <!-- Twitter -->
+  <meta property="twitter:card" content="summary_large_image">
+  <meta property="twitter:title" content="Massage Therapy New Paltz, NY | Chelsea Vaccaro">
+  <meta property="twitter:description" content="Expert massage therapy including Deep Tissue, Swedish, and Prenatal care in the heart of New Paltz.">
+
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+
+  <!-- Structured Data for Local Business -->
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "LocalBusiness",
+      "name": "Chelsea Vaccaro Massage Therapy",
+      "image": "{{ url_for('static', filename='Images/Hero.png', _external=True) }}",
+      "@id": "",
+      "url": "https://www.chelseavaccaro.com/",
+      "telephone": "(555) 123-4567",
+      "address": {
+        "@type": "PostalAddress",
+        "streetAddress": "123 Main Street, Suite 100",
+        "addressLocality": "New Paltz",
+        "addressRegion": "NY",
+        "postalCode": "12561",
+        "addressCountry": "US"
+      },
+      "openingHoursSpecification": [
+        {
+          "@type": "OpeningHoursSpecification",
+          "dayOfWeek": ["Monday", "Tuesday", "Wednesday", "Thursday"],
+          "opens": "09:00",
+          "closes": "20:00"
+        },
+        {
+          "@type": "OpeningHoursSpecification",
+          "dayOfWeek": ["Friday", "Saturday", "Sunday"],
+          "opens": "09:00",
+          "closes": "19:00"
+        }
+      ],
+      "sameAs": [
+        "https://www.facebook.com/chelseavaccaromassage",
+        "https://www.instagram.com/chelseavaccaromassage"
+      ]
+    }
+  </script>
 </head>
 <body>
   <header>
@@ -21,16 +75,17 @@
     </div>
   </header>
 
-  <section class="hero" id="hero">
-    <img src="static/Images/Hero.png" alt="Massage hero image" />
+  <main>
+    <section class="hero" id="hero">
+      <img src="static/Images/Hero.png" alt="Relaxing massage therapy session at Chelsea Vaccaro Massage Therapy in New Paltz" />
     <div class="container">
-      <h1>Heal + Refresh</h1>
-      <p>Expert Massage Therapy</p>
+        <h1>Heal + Refresh</h1>
+        <p>Expert Massage Therapy in New Paltz, NY</p>
       <a href="{{ url_for('booking_page') }}" class="cta">Reserve Now</a>
     </div>
-  </section>
+    </section>
 
-  <section class="services container" id="services">
+    <section class="services container" id="services">
   <h2>Our Services</h2>
   <div class="grid">
 
@@ -134,9 +189,9 @@
 </section>
 
   <section class="about container" id="about">
-    <img src="static/Images/OurPromise.png" alt="Massage therapist" />
+      <img src="static/Images/OurPromise.png" alt="Our promise for compassionate and inclusive massage care" />
     <div class="about-text">
-      <h2>Our Promise</h2>
+        <h2>Our Promise to Our Clients</h2>
       <p>I am deeply dedicated to supporting any health condition that can be improved through bodywork,
         and I proudly welcome people of all ages, backgrounds, and abilities. My practice is built on inclusivity,
         respect, and the belief that everyone deserves skilled, compassionate care—whether you’re seeking relief, recovery,
@@ -154,8 +209,9 @@
         stress, injury, and the many physical shifts life can bring. Her commitment to continued education ensures that her techniques
         evolve alongside the latest understanding of the body, allowing her to tailor each session to the individual.</p>
     </div>
-    <img src="static/Images/AboutMe.png" alt="Massage therapist" />
+      <img src="static/Images/AboutMe.png" alt="Chelsea Vaccaro, Licensed Massage Therapist in New Paltz, NY" />
   </section>
+  </main>
 
   <section class="contact" id="contact">
     <h2>Contact Us</h2>
