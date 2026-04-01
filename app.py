@@ -639,7 +639,39 @@ def _handle_intake_submission_background(data, pdf_output):
     except Exception as sheets_e:
         print(f"ERROR (background): Failed to update Google Sheets: {sheets_e}")
 
-    # --- 4. Send Email to Admin (Now including Drive link in body) ---
+    # --- 3.5 Update "Clients" tab with DOB and Address ---
+    try:
+        client_email = data.get('email')
+        if sheets_service and client_email:
+            normalized_email = client_email.strip().lower()
+            # Fetch all emails from the Clients sheet (Column C)
+            client_data_result = sheets_service.spreadsheets().values().get(
+                spreadsheetId=SPREADSHEET_ID,
+                range='Clients!C:C'
+            ).execute()
+            client_rows = client_data_result.get('values', [])
+
+            # Find the row index where the email matches
+            target_row_index = -1
+            for idx, row_val in enumerate(client_rows):
+                if row_val and row_val[0].strip().lower() == normalized_email:
+                    target_row_index = idx + 1 # Sheets is 1-indexed
+                    break
+
+            if target_row_index != -1:
+                # Update DOB (Col E) and Address (Col F) for that specific row
+                update_range = f'Clients!E{target_row_index}:F{target_row_index}'
+                sheets_service.spreadsheets().values().update(
+                    spreadsheetId=SPREADSHEET_ID,
+                    range=update_range,
+                    valueInputOption='USER_ENTERED',
+                    body={'values': [[data.get('dob', ''), data.get('address', '')]]}
+                ).execute()
+                print(f"BACKGROUND_TASK: Enriched client profile (DOB/Address) for {client_email}")
+    except Exception as e:
+        print(f"ERROR (background): Failed to enrichment client data in Clients sheet: {e}")
+
+    # --- 4. Send Email to Admin ---
     try:
         admin_email = SENDER_EMAIL
         email_subject = f"New Intake Form Submitted by {client_name}"
