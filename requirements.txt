@@ -1,8 +1,9 @@
-Flask
-google-api-python-client
-google-auth-httplib2
-google-auth-oauthlib
-fpdf2
-Pillow
-gunicorn
-tzdata
+Flask==3.1.2
+fpdf2==2.8.5
+google-api-python-client==2.186.0
+google-auth==2.41.1
+google-auth-httplib2==0.2.1
+google-auth-oauthlib==1.2.3
+python-dotenv==1.2.2
+gunicorn==20.1.0
+pillow==12.0.0
