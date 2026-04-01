@@ -96,7 +96,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 start_time: startTime.toISOString(),
                 service_duration: parseInt(lengthSelect.value),
                 summary: `${serviceName} for ${clientName}`,
-                description: `Comments: ${formData.get('comments')}`
+                description: `Comments: ${formData.get('comments')}`,
+                service_type: serviceName, // NEW: Add the service type for calendar coloring
             };
 
             const response = await fetch('/api/book', {

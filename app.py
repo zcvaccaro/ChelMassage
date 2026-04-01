@@ -1,141 +1,119 @@
-
 # === Chel Massage Backend Plan ===
 import base64
 import datetime
+from datetime import timezone, timedelta
+import io
 import os
 import threading
 from urllib.parse import urlencode
+from typing import Optional
+from zoneinfo import ZoneInfo
+
+from dotenv import load_dotenv
+from flask import Flask, request, jsonify, render_template, url_for
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 from PIL import Image
-from flask import Flask, request, jsonify, render_template, url_for
-from zoneinfo import ZoneInfo
+
 from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials as UserCredentials
+from google.oauth2.service_account import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+from googleapiclient.http import MediaIoBaseUpload
+
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
-from google.oauth2.service_account import Credentials
-from google.oauth2.credentials import Credentials as UserCredentials
-import io
-from googleapiclient.discovery import build, Resource
-from googleapiclient.errors import HttpError
-from datetime import timezone, timedelta
 
+# 1. Load environment variables from .env file immediately
+load_dotenv()
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
 
-
-# --- Google Calendar Integration ---
+# --- Configuration ---
 SCOPES = [
     'https://www.googleapis.com/auth/calendar',
     'https://www.googleapis.com/auth/gmail.send',
-    'https://www.googleapis.com/auth/spreadsheets'
+    'https://www.googleapis.com/auth/spreadsheets',
+    'https://www.googleapis.com/auth/drive.file'
 ]
 SERVICE_ACCOUNT_FILE = 'key.json'
 CALENDAR_ID = 'cvlmt101@gmail.com'
 SPREADSHEET_ID = '1lcTDwJ33soNj90bohmKOJ9_qSXl0EnbaIZQZbf3pCn4'
-
+DRIVE_FOLDER_ID = os.getenv("DRIVE_FOLDER_ID", "").strip()
 LOCAL_TIMEZONE = "America/New_York"
-# --- Email Configuration (SMTP with App Password) ---
-SENDER_EMAIL = os.environ.get("SENDER_EMAIL", "").strip()
-APP_PASSWORD = os.environ.get("APP_PASSWORD", "").strip()
 
-# --- Startup Configuration Checks ---
-if not SENDER_EMAIL or not APP_PASSWORD:
-    print("SYSTEM WARNING: SENDER_EMAIL or APP_PASSWORD not set. Emails will NOT send.")
+# --- Google Calendar Event Color Mapping ---
+# Map service names to Google Calendar's color IDs (1-11).
+# See: https://developers.google.com/calendar/api/v3/reference/colors
+SERVICE_COLOR_MAPPING = {
+    "Deep Tissue": "3",               # Grape (Purple)
+    "Swedish": "7",                   # Peacock (Blue)
+    "Prenatal": "6",                  # Banana (Yellow)
+    "Myofascial Release (MFR)": "10",  # Basil (Green)
+}
+
+# --- Email Configuration ---
+# Ensure we pull the email from the environment (loaded via dotenv above)
+SENDER_EMAIL = os.getenv("SENDER_EMAIL", "").strip()
+
+# --- Startup Checks ---
+if not SENDER_EMAIL:
+    print("!!! CRITICAL SYSTEM WARNING: SENDER_EMAIL is not found in .env or system environment. Emails will fail.")
 else:
-    print(f"SYSTEM: Email configuration loaded for {SENDER_EMAIL}")
+    print(f"SYSTEM: Successfully loaded business email: {SENDER_EMAIL}")
 
 if not os.path.exists(SERVICE_ACCOUNT_FILE):
     print(f"SYSTEM WARNING: {SERVICE_ACCOUNT_FILE} not found. Calendar/Sheets integration will fail.")
 
-def get_calendar_service():
-    """Authenticates and returns a Google Calendar API service object."""
+def get_google_service(service_name, version):
+    """Unified helper to get a Google API service using token.json (User) or key.json (Service Account)."""
     creds = None
-    try:
-        creds = Credentials.from_service_account_file(
-            SERVICE_ACCOUNT_FILE, scopes=SCOPES)
-    except FileNotFoundError:
-        print(f"Error: The service account key file was not found at '{SERVICE_ACCOUNT_FILE}'.")
-        print("Please make sure the file is in the correct directory and the path is correct.")
-        return None
-    except Exception as e:
-        print(f"An error occurred loading credentials: {e}")
-        return None
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    token_path = os.path.join(script_dir, 'token.json')
 
-    try:
-        service = build('calendar', 'v3', credentials=creds)
-        return service
-    except Exception as e:
-        print(f"An error occurred building the service: {e}")
-        return None
+    # 1. Try OAuth2 User Token (token.json) - Preferred for User's Drive/Calendar/Gmail
+    if os.path.exists(token_path):
+        try:
+            creds = UserCredentials.from_authorized_user_file(token_path, SCOPES)
+            if creds and not creds.valid:
+                if creds.expired and creds.refresh_token:
+                    creds.refresh(Request())
+                    with open(token_path, 'w') as token:
+                        token.write(creds.to_json())
+            if creds and creds.valid:
+                return build(service_name, version, credentials=creds)
+        except Exception as e:
+            print(f"DEBUG: User OAuth failed for {service_name}: {e}")
+            creds = None
+
+    # 2. Fallback to Service Account (key.json)
+    if not creds:
+        if os.path.exists(SERVICE_ACCOUNT_FILE):
+            try:
+                creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+                return build(service_name, version, credentials=creds)
+            except Exception as e:
+                print(f"ERROR: Service account failed for {service_name}: {e}")
+        else:
+            print(f"ERROR: No valid credentials for {service_name}")
+    return None
+
+def get_calendar_service():
+    return get_google_service('calendar', 'v3')
 
 def get_sheets_service():
-    """Authenticates and returns a Google Sheets API service object."""
-    creds = None
-    try:
-        creds = Credentials.from_service_account_file(
-            SERVICE_ACCOUNT_FILE, scopes=SCOPES)
-    except FileNotFoundError:
-        print(f"Error: The service account key file was not found at '{SERVICE_ACCOUNT_FILE}'.")
-        return None
-    except Exception as e:
-        print(f"An error occurred loading credentials for Sheets: {e}")
-        return None
+    return get_google_service('sheets', 'v4')
 
-    try:
-        service = build('sheets', 'v4', credentials=creds)
-        return service
-    except Exception as e:
-        print(f"An error occurred building the Sheets service: {e}")
-        return None
+def get_drive_service():
+    return get_google_service('drive', 'v3')
 
 def get_gmail_service():
-    """Authenticates and returns a Google Gmail API service object."""
-    # 1. Try OAuth2 User Token (token.json) - Required for @gmail.com addresses
-    if os.path.exists('token.json'):
-        try:
-            creds = UserCredentials.from_authorized_user_file('token.json', SCOPES)
-            return build('gmail', 'v1', credentials=creds)
-        except Exception as e:
-            print(f"Error loading token.json: {e}")
+    return get_google_service('gmail', 'v1')
 
-    creds = None
-    try:
-        creds = Credentials.from_service_account_file(
-            SERVICE_ACCOUNT_FILE, scopes=SCOPES)
-    except FileNotFoundError:
-        print(f"Error: The service account key file was not found at '{SERVICE_ACCOUNT_FILE}'.")
-        return None
-    except Exception as e:
-        print(f"An error occurred loading credentials for Gmail: {e}")
-        return None
-
-    try:
-        service = build('gmail', 'v1', credentials=creds)
-        return service
-    except Exception as e:
-        print(f"An error occurred building the Gmail service: {e}")
-        return None
-
-def get_free_busy(service, start_time, end_time, calendar_ids):
-    """
-    Retrieves free/busy information for a given calendar.
-    """
-    try:
-        body = {
-            "timeMin": start_time,
-            "timeMax": end_time,
-            "items": [{"id": calendar_ids}]
-        }
-        eventsResult = service.freebusy().query(body=body).execute()
-        return eventsResult["calendars"][calendar_ids]["busy"]
-    except HttpError as error:
-        print(F'An error occurred: {error}')
-        return None
-
-def create_event(service, summary, start_time, end_time, description="", calendar_id='primary'):
+def create_event(service, summary, start_time, end_time, description="", calendar_id='primary', color_id: Optional[str] = None):
     """Creates a new event on the specified calendar."""
     event = {
         'summary': summary,
@@ -148,6 +126,7 @@ def create_event(service, summary, start_time, end_time, description="", calenda
             'dateTime': end_time.isoformat(),
             'timeZone': 'UTC',
         },
+        'colorId': color_id,
     }
 
     try:
@@ -160,6 +139,11 @@ def create_event(service, summary, start_time, end_time, description="", calenda
 
 def send_email(receiver_email, subject, body_html, attachment_data=None, attachment_filename=None):
     """Sends an email using the Google Gmail API (Port 443)."""
+
+    if not receiver_email:
+        error_msg = "ERROR: send_email: Receiver email address is required but was empty."
+        print(error_msg)
+        return False, error_msg
 
     service = get_gmail_service()
     if not service:
@@ -374,6 +358,7 @@ def book_appointment():
         end_time = start_time + timedelta(minutes=duration + buffer)
         summary = data['summary']
         description = data.get('description', '')
+        service_type = data.get('service_type') # New: Get service type from frontend
         client_info = data.get('client', {})
     except (KeyError, TypeError, ValueError) as e:
         return jsonify({"error": f"Invalid or missing data in request: {e}"}), 400
@@ -382,10 +367,12 @@ def book_appointment():
     if not service:
         return jsonify({"error": "Could not connect to Google Calendar service."}), 500
 
+    # Determine event color based on service type
+    event_color_id = SERVICE_COLOR_MAPPING.get(service_type)
+
     # --- Overlap Prevention Logic ---
     check_start = start_time - timedelta(hours=1)
     check_end = end_time + timedelta(hours=1)
-
     try:
         events_result = service.events().list(
             calendarId=CALENDAR_ID,
@@ -412,8 +399,8 @@ def book_appointment():
 
     full_description = description
 
-
-    created_event = create_event(service, summary, start_time, end_time, full_description, CALENDAR_ID)
+    # Pass the determined color ID to the create_event function
+    created_event = create_event(service, summary, start_time, end_time, full_description, CALENDAR_ID, color_id=event_color_id)
 
     if not created_event:
         return jsonify({"error": "Failed to create calendar event."}), 500
@@ -436,16 +423,83 @@ def book_appointment():
     intake_url = url_for('intake_page', _external=True) + '?' + urlencode(intake_params)
 
     # --- Define Async Email Task ---
-    def send_emails_background():
-        print(f"BACKGROUND_TASK: Starting to send emails for booking. Client email is: {client_email}")
+    def _handle_booking_background():
+        # 1. Update "Clients" Sheet immediately upon booking
+        try:
+            sheets_service = get_sheets_service()
+            if sheets_service and client_email:
+                # Normalize for comparison
+                normalized_email = client_email.strip().lower()
+
+                # Check for existing client
+                result = sheets_service.spreadsheets().values().get(
+                    spreadsheetId=SPREADSHEET_ID,
+                    range='Clients!C:C'
+                ).execute()
+
+                existing_emails = [
+                    item.strip().lower() for sublist in result.get('values', [])
+                    for item in sublist if item and isinstance(item, str)
+                ]
+
+                if normalized_email not in existing_emails:
+                    print(f"BACKGROUND_TASK: New client booking: {client_email}. Adding to 'Clients' sheet.")
+                    # Fetch sheet ID for prepend
+                    spreadsheet = sheets_service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
+                    client_sheet_id = next(s['properties']['sheetId'] for s in spreadsheet.get('sheets', []) if s['properties']['title'] == 'Clients')
+
+                    client_row = [
+                        client_info.get('first_name', ''),
+                        client_info.get('last_name', ''),
+                        client_email,
+                        client_info.get('phone', ''),
+                        '',  # DOB (Collected at intake)
+                        ''   # Address (Collected at intake)
+                    ]
+
+                    # Prepend to Row 2
+                    sheets_service.spreadsheets().batchUpdate(
+                        spreadsheetId=SPREADSHEET_ID,
+                        body={"requests": [{"insertDimension": {
+                            "range": {"sheetId": client_sheet_id, "dimension": "ROWS", "startIndex": 1, "endIndex": 2},
+                            "inheritFromBefore": False
+                        }}]}
+                    ).execute()
+
+                    sheets_service.spreadsheets().values().update(
+                        spreadsheetId=SPREADSHEET_ID,
+                        range='Clients!A2',
+                        valueInputOption='USER_ENTERED',
+                        body={'values': [client_row]}
+                    ).execute()
+                else:
+                    print(f"BACKGROUND_TASK: Existing client {client_email} booked. Skipping 'Clients' sheet update.")
+        except Exception as sheet_e:
+            print(f"ERROR (background): Failed to update Clients sheet during booking: {sheet_e}")
+
+        # 2. Send Emails
+        print(f"BACKGROUND_TASK: Starting email delivery for: {client_email}")
         if client_email:
             email_subject = "Your Massage Appointment is Confirmed!"
+            # (Existing email body logic stays exactly as is)
             email_body_html = f"""
+            <html>
+            <head>
+                <style>
+                    .email-cta:hover {{
+                        background-color: #ffffff !important;
+                        color: #000000 !important;
+                    }}
+                </style>
+            </head>
+            <body>
             <p>Hi {client_first_name},</p>
             <p>Thank you for booking your appointment! We look forward to seeing you on <strong>{booking_date_formatted}</strong> at <strong>{booking_time_formatted}</strong>.</p>
             <p>As a next step, if you have not already, please complete our secure client intake form by clicking the link below:</p>
-            <p><a href="{intake_url}" style="padding: 10px 15px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px;">Complete Intake Form</a></p>
-            <p>Thank you,<br>Chelsea Vaccaro Massage Therapy</p>
+            <p><a href="{intake_url}" class="email-cta" style="display: inline-block; padding: 12px 24px; border: 1px solid #000; background-color: #000; color: #fff; font-size: 1rem; font-weight: bold; text-decoration: none; border-radius: 50px; transition: background-color 0.3s ease, color 0.3s ease;">Complete Intake Form</a></p>
+            <p>Thank you,<br>Chelsea Vaccaro Therapeutic Massage</p>
+            </body>
+            </html>
             """
             client_email_sent, _ = send_email(client_email, email_subject, email_body_html)
             if client_email_sent:
@@ -476,7 +530,7 @@ def book_appointment():
             print(f"CRITICAL: Failed to send admin notification email for booking. Error: {e}")
 
     # --- Start Background Thread ---
-    threading.Thread(target=send_emails_background).start()
+    threading.Thread(target=_handle_booking_background).start()
 
     return jsonify({
         "message": "Booking successful!",
@@ -486,55 +540,106 @@ def book_appointment():
 def _handle_intake_submission_background(data, pdf_output):
     """Handles slow tasks (Sheets, Email) for intake form in the background."""
     client_name = f"{data.get('firstName', 'N/A')} {data.get('lastName', 'N/A')}"
-    # --- 3. Update Google Sheets ---
+    drive_link = "Link failed to generate"
+
+    # --- 1. Construct Filename ---
+    booking_date_raw = data.get('bookingDate', 'NoDate')
+    booking_time_raw = data.get('bookingTime', 'NoTime')
+    client_first_name = data.get('firstName', 'N/A')
+    client_last_name = data.get('lastName', 'N/A')
+
+    try:
+        parsed_date_time = datetime.datetime.strptime(f"{booking_date_raw} {booking_time_raw}", '%B %d, %Y %I:%M %p')
+        filename_date = parsed_date_time.strftime('%m-%d-%Y')
+        filename_time = parsed_date_time.strftime('%I%M%p')
+    except ValueError:
+        filename_date = booking_date_raw.replace(' ', '-').replace(',', '')
+        filename_time = booking_time_raw.replace(':', '').replace(' ', '')
+
+    attachment_filename = f"{filename_date}_{filename_time}_{client_first_name}_{client_last_name}.pdf"
+
+    # --- 2. Upload PDF to Google Drive ---
+    try:
+        drive_service = get_drive_service()
+        if drive_service:
+            parent_id = None
+
+            # 1. Try to use a hardcoded Folder ID first (Most reliable)
+            if DRIVE_FOLDER_ID:
+                parent_id = DRIVE_FOLDER_ID
+            else:
+                # 2. Fallback to searching by name with broader permissions
+                query = "name = 'Client Intake Forms' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+                response = drive_service.files().list(
+                    q=query,
+                    spaces='drive',
+                    fields='files(id)',
+                    includeItemsFromAllDrives=True,
+                    supportsAllDrives=True
+                ).execute()
+                folders = response.get('files', [])
+
+                if folders:
+                    parent_id = folders[0]['id']
+                else:
+                    print("BACKGROUND_TASK: Folder 'Client Intake Forms' not found via search. Uploading to root.")
+
+            file_metadata = {'name': attachment_filename}
+            if parent_id:
+                file_metadata['parents'] = [parent_id]
+
+            media = MediaIoBaseUpload(io.BytesIO(pdf_output), mimetype='application/pdf')
+            uploaded_file = drive_service.files().create(
+                body=file_metadata,
+                media_body=media,
+                supportsAllDrives=True, # Required for Workspace Shared Drives
+                fields='id, webViewLink'
+            ).execute()
+
+            drive_link = uploaded_file.get('webViewLink')
+            print(f"BACKGROUND_TASK: PDF uploaded to Drive successfully: {drive_link}")
+    except Exception as drive_e:
+        print(f"ERROR (background): Failed to upload PDF to Drive: {drive_e}")
+
+    # --- 3. Update Google Sheets (including the Drive Link) ---
     try:
         sheets_service = get_sheets_service()
         if sheets_service:
-            # --- Part A: Update "Clients" sheet (if new client) ---
-            client_email = data.get('email')
-            if client_email:
-                result = sheets_service.spreadsheets().values().get(
-                    spreadsheetId=SPREADSHEET_ID,
-                    range='Clients!C:C'
-                ).execute()
-                existing_emails = [item for sublist in result.get('values', []) for item in sublist]
+            # Fetch spreadsheet metadata to get sheet IDs for the prepend operation
+            spreadsheet = sheets_service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
+            intake_sheet_id = next(s['properties']['sheetId'] for s in spreadsheet.get('sheets', []) if s['properties']['title'] == 'Intake Forms')
 
-                if client_email not in existing_emails:
-                    print(f"BACKGROUND_TASK: New client detected: {client_email}. Adding to 'Clients' sheet.")
-                    client_row = [
-                        data.get('firstName', ''),
-                        data.get('lastName', ''),
-                        client_email,
-                        data.get('phone', ''),
-                        data.get('dob', ''),
-                        data.get('address', '')
-                    ]
-                    sheets_service.spreadsheets().values().append(
-                        spreadsheetId=SPREADSHEET_ID,
-                        range='Clients!A1',
-                        valueInputOption='USER_ENTERED',
-                        body={'values': [client_row]}
-                    ).execute()
-
-            # --- Part B: Always append to "Intake Forms" sheet ---
             intake_row = [
                 datetime.datetime.now(ZoneInfo(LOCAL_TIMEZONE)).strftime('%Y-%m-%d %H:%M:%S'),
                 client_name,
                 data.get('reason', ''),
                 data.get('conditions', ''),
-                data.get('allergies', '')
+                data.get('allergies', ''),
+                drive_link # Column F
             ]
-            sheets_service.spreadsheets().values().append(
-                spreadsheetId=SPREADSHEET_ID,
-                range='Intake Forms!A1',
-                valueInputOption='USER_ENTERED',
-                body={'values': [intake_row]}
-            ).execute()
+
+            if intake_sheet_id is not None:
+                # Insert a blank row at Row 2 (index 1) to push existing data down
+                sheets_service.spreadsheets().batchUpdate(
+                    spreadsheetId=SPREADSHEET_ID,
+                    body={"requests": [{"insertDimension": {
+                        "range": {"sheetId": intake_sheet_id, "dimension": "ROWS", "startIndex": 1, "endIndex": 2},
+                        "inheritFromBefore": False
+                    }}]}
+                ).execute()
+
+                # Write the new intake data into the now-empty Row 2
+                sheets_service.spreadsheets().values().update(
+                    spreadsheetId=SPREADSHEET_ID,
+                    range='Intake Forms!A2',
+                    valueInputOption='USER_ENTERED',
+                    body={'values': [intake_row]}
+                ).execute()
             print("BACKGROUND_TASK: Successfully updated Google Sheets.")
     except Exception as sheets_e:
         print(f"ERROR (background): Failed to update Google Sheets: {sheets_e}")
 
-    # --- 4. Send Email to Admin ---
+    # --- 4. Send Email to Admin (Now including Drive link in body) ---
     try:
         admin_email = SENDER_EMAIL
         email_subject = f"New Intake Form Submitted by {client_name}"
@@ -543,9 +648,10 @@ def _handle_intake_submission_background(data, pdf_output):
         <p><strong>Client:</strong> {client_name}</p>
         <p><strong>Email:</strong> {data.get('email', 'N/A')}</p>
         <p><strong>Original Booking:</strong> {data.get('bookingDate', 'N/A')} at {data.get('bookingTime', 'N/A')}</p>
+        <p><strong>Google Drive Backup:</strong> <a href="{drive_link}">View PDF in Drive</a></p>
         <p>The completed form is attached as a PDF.</p>
         """
-        attachment_filename = f"IntakeForm_{data.get('lastName', '')}_{data.get('firstName', '')}.pdf"
+
         email_sent, _ = send_email(
             receiver_email=admin_email,
             subject=email_subject,
@@ -580,7 +686,7 @@ def submit_intake():
         pdf.set_font("Helvetica", size=12)
 
         # --- PDF Helper Functions ---
-        def write_line(label, value, is_multiline=False):
+        def write_line(label: str, value: str, is_multiline: bool = False) -> None:
             if not value: return
             pdf.set_font("Helvetica", "B", size=12)
             pdf.cell(40, 7, label, new_x=XPos.RIGHT, new_y=YPos.TOP)
@@ -677,10 +783,13 @@ def submit_intake():
             pdf.set_y(current_y_for_images + max_drawn_height + 10)
 
         # Get PDF data as bytes
-        pdf_output = pdf.output()
+        pdf_output: bytes = bytes(pdf.output())
 
         # --- Start Background Tasks ---
-        threading.Thread(target=_handle_intake_submission_background, args=(data, pdf_output)).start()
+        threading.Thread(
+            target=_handle_intake_submission_background,
+            kwargs={'data': data, 'pdf_output': pdf_output},
+        ).start()
 
         return jsonify({"message": "Intake form submitted successfully."}), 200
 
@@ -692,6 +801,6 @@ def submit_intake():
 if __name__ == '__main__':
     # For deployment, Render sets the PORT environment variable.
     # We default to 5000 for local development.
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', '5000'))
     # Bind to '0.0.0.0' to be accessible in a containerized environment.
     app.run(host='0.0.0.0', port=port, debug=False)

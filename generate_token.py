@@ -1,13 +1,15 @@
 import os.path
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
+from google.auth.exceptions import RefreshError
 from google_auth_oauthlib.flow import InstalledAppFlow
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = [
     'https://www.googleapis.com/auth/calendar',
     'https://www.googleapis.com/auth/gmail.send',
-    'https://www.googleapis.com/auth/spreadsheets'
+    'https://www.googleapis.com/auth/spreadsheets',
+    'https://www.googleapis.com/auth/drive.file'
 ]
 
 def main():
@@ -26,16 +28,21 @@ def main():
     # If there are no (valid) credentials available, let the user log in.
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
+            try:
+                creds.refresh(Request())
+            except RefreshError:
+                print("The existing token is invalid and cannot be refreshed. Re-authenticating...")
+                creds = None
+
+        if not creds or not creds.valid:
             if not os.path.exists(credentials_path):
                 print(f"Error: 'credentials.json' not found at {credentials_path}")
                 print("Files in directory:", os.listdir(script_dir))
                 return
 
-            flow = InstalledAppFlow.from_client_secrets_file(
-                credentials_path, SCOPES)
+            flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
             creds = flow.run_local_server(port=0)
+
         # Save the credentials for the next run
         with open(token_path, 'w') as token:
             token.write(creds.to_json())
