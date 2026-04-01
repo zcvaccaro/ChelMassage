@@ -160,10 +160,10 @@ def send_email(receiver_email, subject, body_html, attachment_data=None, attachm
     message.attach(MIMEText(body_html, "html"))
 
     if attachment_data and attachment_filename:
-        part = MIMEBase("application", "octet-stream")
+        part = MIMEBase("application", "pdf")
         part.set_payload(attachment_data)
         encoders.encode_base64(part)
-        part.add_header("Content-Disposition", f"attachment; filename= {attachment_filename}")
+        part.add_header("Content-Disposition", f"attachment; filename=\"{attachment_filename}\"")
         message.attach(part)
 
     # Encode the message for the Gmail API
