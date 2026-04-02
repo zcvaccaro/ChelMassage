@@ -40,10 +40,10 @@ SCOPES = [
     'https://www.googleapis.com/auth/drive.file'
 ]
 SERVICE_ACCOUNT_FILE = 'key.json'
-CALENDAR_ID = 'cvlmt101@gmail.com'
-SPREADSHEET_ID = '1lcTDwJ33soNj90bohmKOJ9_qSXl0EnbaIZQZbf3pCn4'
+CALENDAR_ID = os.getenv("CALENDAR_ID", "cvlmt101@gmail.com").strip()
+SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "1lcTDwJ33soNj90bohmKOJ9_qSXl0EnbaIZQZbf3pCn4").strip()
 DRIVE_FOLDER_ID = os.getenv("DRIVE_FOLDER_ID", "").strip()
-LOCAL_TIMEZONE = "America/New_York"
+LOCAL_TIMEZONE = os.getenv("LOCAL_TIMEZONE", "America/New_York").strip()
 
 # --- Google Calendar Event Color Mapping ---
 # Map service names to Google Calendar's color IDs (1-11).
@@ -63,7 +63,10 @@ SENDER_EMAIL = os.getenv("SENDER_EMAIL", "").strip()
 if not SENDER_EMAIL:
     print("!!! CRITICAL SYSTEM WARNING: SENDER_EMAIL is not found in .env or system environment. Emails will fail.")
 else:
-    print(f"SYSTEM: Successfully loaded business email: {SENDER_EMAIL}")
+    print(f"SYSTEM: Email Service active as: {SENDER_EMAIL}")
+    print(f"SYSTEM: Target Calendar ID: {CALENDAR_ID}")
+    print(f"SYSTEM: Target Spreadsheet ID: {SPREADSHEET_ID}")
+    print(f"SYSTEM: Timezone set to: {LOCAL_TIMEZONE}")
 
 if not os.path.exists(SERVICE_ACCOUNT_FILE):
     print(f"SYSTEM WARNING: {SERVICE_ACCOUNT_FILE} not found. Calendar/Sheets integration will fail.")
@@ -171,8 +174,8 @@ def send_email(receiver_email, subject, body_html, attachment_data=None, attachm
     body = {'raw': raw_message}
 
     try:
-        # userId='me' refers to the service account itself
-        sent_message = service.users().messages().send(userId='me', body=body).execute()
+        # Use SENDER_EMAIL as userId to ensure the Gmail API sends from the correct Workspace account
+        sent_message = service.users().messages().send(userId=SENDER_EMAIL, body=body).execute()
         print(f"Email sent successfully! Message ID: {sent_message['id']}")
         return True, None
     except HttpError as error:
@@ -206,6 +209,16 @@ def intake_page():
 def booking_confirmation_page():
     """Serves the booking confirmation page."""
     return render_template('BookingConfirm.html')
+
+@app.route('/OnSiteRequest.html')
+def onsite_request_page():
+    """Serves the on-site treatment request form."""
+    return render_template('OnSiteRequest.html')
+
+@app.route('/RequestConfirm.html')
+def request_confirm_page():
+    """Serves the on-site request confirmation page."""
+    return render_template('RequestConfirm.html')
 
 @app.route('/IntakeConfirm.html')
 def intake_confirmation_page():
@@ -268,8 +281,7 @@ def get_availability():
     # --- New Availability Logic ---
     try:
         service_duration = int(duration_str)
-        total_block_duration = service_duration + 10
-
+        total_block_duration = service_duration + 15 # Increased buffer from 10 to 15 minutes
         start_of_day = datetime.datetime.fromisoformat(date_str).replace(hour=0, minute=0, second=0, tzinfo=timezone.utc)
         end_of_day = start_of_day + timedelta(days=1)
     except (ValueError, TypeError):
@@ -354,7 +366,7 @@ def book_appointment():
     try:
         start_time = datetime.datetime.fromisoformat(data['start_time'])
         duration = int(data['service_duration'])
-        buffer = 10
+        buffer = 15 # Increased buffer from 10 to 15 minutes
         end_time = start_time + timedelta(minutes=duration + buffer)
         summary = data['summary']
         description = data.get('description', '')
@@ -446,7 +458,8 @@ def book_appointment():
                     print(f"BACKGROUND_TASK: New client booking: {client_email}. Adding to 'Clients' sheet.")
                     # Fetch sheet ID for prepend
                     spreadsheet = sheets_service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
-                    client_sheet_id = next(s['properties']['sheetId'] for s in spreadsheet.get('sheets', []) if s['properties']['title'] == 'Clients')
+                    client_sheet_metadata = next(s for s in spreadsheet.get('sheets', []) if s['properties']['title'] == 'Clients')
+                    client_sheet_id = client_sheet_metadata['properties']['sheetId']
 
                     client_row = [
                         client_info.get('first_name', ''),
@@ -457,14 +470,22 @@ def book_appointment():
                         ''   # Address (Collected at intake)
                     ]
 
-                    # Prepend to Row 2
-                    sheets_service.spreadsheets().batchUpdate(
-                        spreadsheetId=SPREADSHEET_ID,
-                        body={"requests": [{"insertDimension": {
+                    # Ensure Row 2 exists. If the sheet is empty (rowCount=1), append a row.
+                    # If it has data (rowCount > 1), insert a row at index 1 to push data down.
+                    current_rows = client_sheet_metadata.get('gridProperties', {}).get('rowCount', 0)
+                    if current_rows > 1:
+                        request_body = {"requests": [{"insertDimension": {
                             "range": {"sheetId": client_sheet_id, "dimension": "ROWS", "startIndex": 1, "endIndex": 2},
                             "inheritFromBefore": False
                         }}]}
-                    ).execute()
+                    else:
+                        request_body = {"requests": [{"appendDimension": {
+                            "sheetId": client_sheet_id,
+                            "dimension": "ROWS",
+                            "length": 1
+                        }}]}
+                    
+                    sheets_service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=request_body).execute()
 
                     sheets_service.spreadsheets().values().update(
                         spreadsheetId=SPREADSHEET_ID,
@@ -497,7 +518,7 @@ def book_appointment():
             <p>Thank you for booking your appointment! We look forward to seeing you on <strong>{booking_date_formatted}</strong> at <strong>{booking_time_formatted}</strong>.</p>
             <p>As a next step, if you have not already, please complete our secure client intake form by clicking the link below:</p>
             <p><a href="{intake_url}" class="email-cta" style="display: inline-block; padding: 12px 24px; border: 1px solid #000; background-color: #000; color: #fff; font-size: 1rem; font-weight: bold; text-decoration: none; border-radius: 50px; transition: background-color 0.3s ease, color 0.3s ease;">Complete Intake Form</a></p>
-            <p>Thank you,<br>Chelsea Vaccaro Therapeutic Massage</p>
+            <p>Thank you,<br>Chelsea Vaccaro <br> Therapeutic Massage</p>
             </body>
             </html>
             """
@@ -607,10 +628,11 @@ def _handle_intake_submission_background(data, pdf_output):
         if sheets_service:
             # Fetch spreadsheet metadata to get sheet IDs for the prepend operation
             spreadsheet = sheets_service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
-            intake_sheet_id = next(s['properties']['sheetId'] for s in spreadsheet.get('sheets', []) if s['properties']['title'] == 'Intake Forms')
+            intake_sheet_metadata = next(s for s in spreadsheet.get('sheets', []) if s['properties']['title'] == 'Intake Forms')
+            intake_sheet_id = intake_sheet_metadata['properties']['sheetId']
 
             intake_row = [
-                datetime.datetime.now(ZoneInfo(LOCAL_TIMEZONE)).strftime('%Y-%m-%d %H:%M:%S'),
+                datetime.datetime.now(ZoneInfo(LOCAL_TIMEZONE)).strftime('%Y-%m-%d %I:%M:%S %p'),
                 client_name,
                 data.get('reason', ''),
                 data.get('conditions', ''),
@@ -618,15 +640,22 @@ def _handle_intake_submission_background(data, pdf_output):
                 drive_link # Column F
             ]
 
+            # Ensure space for data. If rowCount is 1, append a row; otherwise, insert at top.
+            current_rows = intake_sheet_metadata.get('gridProperties', {}).get('rowCount', 0)
             if intake_sheet_id is not None:
-                # Insert a blank row at Row 2 (index 1) to push existing data down
-                sheets_service.spreadsheets().batchUpdate(
-                    spreadsheetId=SPREADSHEET_ID,
-                    body={"requests": [{"insertDimension": {
+                if current_rows > 1:
+                    request_body = {"requests": [{"insertDimension": {
                         "range": {"sheetId": intake_sheet_id, "dimension": "ROWS", "startIndex": 1, "endIndex": 2},
                         "inheritFromBefore": False
                     }}]}
-                ).execute()
+                else:
+                    request_body = {"requests": [{"appendDimension": {
+                        "sheetId": intake_sheet_id,
+                        "dimension": "ROWS",
+                        "length": 1
+                    }}]}
+                
+                sheets_service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=request_body).execute()
 
                 # Write the new intake data into the now-empty Row 2
                 sheets_service.spreadsheets().values().update(
@@ -828,6 +857,146 @@ def submit_intake():
     except Exception as e:
         print(f"ERROR: /api/submit-intake: {e}")
         return jsonify({"error": "Server error while processing the form."}), 500
+
+@app.route('/api/request-onsite', methods=['POST'])
+def request_onsite():
+    """
+    API endpoint to handle on-site treatment requests.
+    Sends emails to admin and client in the background.
+    """
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Invalid JSON payload."}), 400
+
+    # Start the background task to send emails
+    threading.Thread(target=_handle_onsite_request_background, args=(data,)).start()
+
+    return jsonify({"message": "On-site request submitted successfully."}), 200
+
+def _handle_onsite_request_background(data):
+    """Background task to send notification emails for on-site requests."""
+    first_name = data.get('firstName', 'Valued Client')
+    last_name = data.get('lastName', '')
+    full_name = f"{first_name} {last_name}".strip()
+    client_email = data.get('email')
+    
+    # 1. Notify Admin
+    try:
+        admin_email = SENDER_EMAIL
+        admin_subject = f"New On-Site Request: {full_name}"
+        
+        # Build requested times summary
+        times = []
+        for i in range(1, 4):
+            d = data.get(f'date{i}')
+            t = data.get(f'time{i}')
+            if d and t:
+                times.append(f"<li>{d} at {t}</li>")
+        times_html = f"<ul>{''.join(times)}</ul>" if times else "<p>No specific times provided.</p>"
+
+        admin_body_html = f"""
+        <h3>New On-Site Treatment Request</h3>
+        <p><strong>Client:</strong> {full_name}</p>
+        <p><strong>Email:</strong> {client_email}</p>
+        <p><strong>Phone:</strong> {data.get('phone')}</p>
+        <p><strong>Address:</strong> {data.get('address')}</p>
+        <p><strong>Treatment Type:</strong> {data.get('treatmentType')}</p>
+        <p><strong>Requested Times:</strong></p>
+        {times_html}
+        <p><strong>Preferred Contact:</strong> {data.get('contactMethod')}</p>
+        <p><strong>Additional Details:</strong> {data.get('details') or 'None'}</p>
+        """
+        send_email(admin_email, admin_subject, admin_body_html)
+        print(f"BACKGROUND_TASK: Admin notified of on-site request from {full_name}")
+    except Exception as e:
+        print(f"ERROR: Failed to send admin on-site request notification: {e}")
+
+    # 2. Confirm to Client
+    if client_email:
+        try:
+            client_subject = "Your On-Site Treatment Request - Chelsea Vaccaro"
+
+            # Construct a human-friendly list of dates
+            date_list = []
+            for i in range(1, 4):
+                d = data.get(f'date{i}')
+                t = data.get(f'time{i}')
+                if d and t:
+                    date_list.append(f"{d} at {t}")
+
+            times_sentence = " or ".join([", ".join(date_list[:-1]), date_list[-1]]) if len(date_list) > 1 else (date_list[0] if date_list else "your requested times")
+
+            client_body_html = f"""
+            <p>Hi {first_name},</p>
+            <p>Thank you for requesting an on-site treatment with Chelsea Vaccaro Therapeutic Massage!</p>
+            <p>We have received your request for a <strong>{data.get('treatmentType')}</strong> session at <strong>{data.get('address')}</strong> on <strong>{times_sentence}</strong>.</p>
+            <p>We will check our schedules and reach out to you via <strong>{data.get('contactMethod').lower()}</strong> as soon as possible with options and pricing to finalize your appointment.</p>
+            <p>We look forward to helping you heal and refresh in the comfort of your home!</p>
+            <p>Thank you,<br>Chelsea Vaccaro <br> Therapeutic Massage</p>
+            """
+            send_email(client_email, client_subject, client_body_html)
+            print(f"BACKGROUND_TASK: Confirmation email sent to client {client_email}")
+        except Exception as e:
+            print(f"ERROR: Failed to send client on-site request confirmation: {e}")
+
+    # 3. Update Google Sheets
+    try:
+        sheets_service = get_sheets_service()
+        if sheets_service:
+            spreadsheet = sheets_service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
+            # Note: I used "On-Site Requests" here; please ensure the tab name matches exactly.
+            target_tab = "On-Site Requests"
+
+            # Construct the Dates @ Times summary string
+            date_time_entries = []
+            for i in range(1, 4):
+                d = data.get(f'date{i}')
+                t = data.get(f'time{i}')
+                if d and t:
+                    date_time_entries.append(f"{d} at {t}")
+            date_time_summary = " | ".join(date_time_entries)
+
+            row_data = [
+                full_name,
+                client_email,
+                data.get('phone', ''),
+                data.get('address', ''),
+                data.get('treatmentType', ''),
+                date_time_summary,
+                data.get('details', '')
+            ]
+
+            sheet_metadata = next((s for s in spreadsheet.get('sheets', []) if s['properties']['title'] == target_tab), None)
+            if sheet_metadata:
+                sheet_id = sheet_metadata['properties']['sheetId']
+                # Ensure space for the request. Append if empty, insert if not.
+                current_rows = sheet_metadata.get('gridProperties', {}).get('rowCount', 0)
+                if current_rows > 1:
+                    request_body = {"requests": [{"insertDimension": {
+                        "range": {"sheetId": sheet_id, "dimension": "ROWS", "startIndex": 1, "endIndex": 2},
+                        "inheritFromBefore": False
+                    }}]}
+                else:
+                    request_body = {"requests": [{"appendDimension": {
+                        "sheetId": sheet_id,
+                        "dimension": "ROWS",
+                        "length": 1
+                    }}]}
+
+                sheets_service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=request_body).execute()
+
+                # Write the new request data into Row 2
+                sheets_service.spreadsheets().values().update(
+                    spreadsheetId=SPREADSHEET_ID,
+                    range=f"'{target_tab}'!A2",
+                    valueInputOption='USER_ENTERED',
+                    body={'values': [row_data]}
+                ).execute()
+                print(f"BACKGROUND_TASK: Logged on-site request for {full_name} to Google Sheets.")
+            else:
+                print(f"BACKGROUND_TASK WARNING: Tab '{target_tab}' not found in the spreadsheet.")
+    except Exception as e:
+        print(f"ERROR: Failed to update Google Sheets for on-site request: {e}")
 
 # --- Main Execution ---
 if __name__ == '__main__':

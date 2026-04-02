@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Request Received | Chelsea Vaccaro Therapeutic Massage</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body class="confirmation-page">
+  <header>
+    <div class="container header-inner">
+      <div class="logo"><a href="{{ url_for('home') }}">Chelsea Vaccaro<br><small>Therapeutic Massage</small></a></div>
+    </div>
+  </header>
+
+  <main>
+    <section class="confirmation-section container">
+      <h2 class="confirmation-title">Request Received</h2>
+      <div id="confirmation-message">
+        <p>Thank you for submitting your request for an On-Site Treatment!<br>
+        We will check our schedules and reach out via your preferred contact method with options and prices as soon as possible.</p>
+      </div>
+      <a href="{{ url_for('home') }}" class="cta">Return Home</a>
+    </section>
+  </main>
+
+  <footer>
+    <p>&copy; 2025 Chelsea Vaccaro Therapeutic Massage. All rights reserved.</p>
+  </footer>
+</body>
+</html>

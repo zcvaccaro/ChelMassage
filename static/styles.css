@@ -436,6 +436,13 @@ footer {
   }
 }
 
+/* Spans the full width of the grid and is shorter than standard cards */
+.card.full-width {
+  grid-column: 1 / -1;
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+}
+
 /* --- JS-driven Active States --- */
 body.card-open {
   overflow: hidden;
@@ -513,6 +520,18 @@ textarea {
   font-family: inherit;
 }
 
+/* Custom dropdown chevron for selects */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 20px center;
+  background-size: 16px;
+  padding-right: 45px;
+}
+
 fieldset {
   border: 1px solid #ddd;
   border-radius: 5px;
@@ -533,7 +552,7 @@ legend {
 
 .input-with-icon .input-icon {
   position: absolute;
-  right: 15px;
+  right: 20px; /* Pushed in from 15px */
   top: 50%;
   transform: translateY(-50%);
   pointer-events: none;
@@ -558,7 +577,8 @@ input[type="text"]:read-only, input[type="email"]:read-only, input[type="tel"]:r
 }
 
 /* Override read-only style specifically for the flatpickr date input */
-input#date:read-only {
+input#date:read-only,
+input.datepicker:read-only {
   background-color: #fff;
   cursor: pointer; /* Use a pointer to indicate it's clickable */
 }
@@ -568,6 +588,34 @@ input#date:read-only {
   display: flex;
   gap: 1.5rem;
   margin-top: 0.5rem;
+}
+
+/* On-Site Request specific radio button styling */
+.onsite-contact-group {
+  text-align: center;
+  margin-top: 1rem;
+}
+
+.onsite-contact-group .radio-group {
+  justify-content: center;
+  margin-top: 1rem;
+}
+
+.radio-button-style {
+  display: inline-block;
+  padding: 10px 25px;
+  border: 1px solid #000;
+  background: #fff;
+  color: #000;
+  border-radius: 50px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.radio-group input[type="radio"]:checked + .radio-button-style {
+  background: #000;
+  color: #fff;
 }
 
 .radio-group label {
