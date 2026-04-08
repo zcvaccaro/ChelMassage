@@ -62,13 +62,14 @@ button {
   cursor: pointer;
   border-radius: 50px;
   border: 1px solid #000;
-  transition: background-color 0.3s ease, color 0.3s ease;
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
 }
 
 .cta:hover,
 button:hover {
-  background-color: #fff; /* Inverted background */
-  color: #000; /* Inverted text color */
+  background-color: #fff; /* Default: Invert to white background for standalone CTAs */
+  color: #000;            /* Default: Invert to black text for standalone CTAs */
+  border-color: #000; /* Ensure border matches background on hover */
 }
 
 /* --- Loading Spinner for Buttons --- */
@@ -132,12 +133,54 @@ header {
 .logo {
   font-size: 2.3rem;
   font-weight: bold;
-  line-height: 1.1;
+  line-height: 0.85; /* Brought closer together for better visual grouping */
 }
 
 .logo small {
   font-size: 1.2rem;
   font-weight: normal;
+  letter-spacing: 0.33rem; /* Spread letters further to span more width */
+}
+
+/* --- Navbar CTA Button Grouping --- */
+.nav-cta-group {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  margin-left: 1.2rem;
+}
+
+.nav-cta-group .cta {
+  margin: 0 !important;
+  position: relative;
+}
+
+.nav-cta-group .call-btn {
+  background-color: #fff !important;
+  color: #000 !important;
+  border-radius: 50px 0 0 50px !important;
+  border-right: none !important;
+  padding-right: 50px !important; /* Allows space to tuck under the next button */
+  margin-right: -25px !important; /* Pulls the reserve button over the right edge */
+  z-index: 1;
+  transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out, border-color 0.2s ease-in-out !important;
+}
+
+.nav-cta-group .call-btn:hover {
+  background-color: #555 !important; /* Specific grey background for grouped button hover */
+  color: #eee !important;            /* Specific dark grey text for grouped button hover */
+  border-color: #000000 !important;     /* Specific grey border for grouped button hover */
+}
+
+.nav-cta-group .reserve-btn {
+  z-index: 2; /* Keeps the full pill shape on top of the call button's straight edge */
+  transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out, border-color 0.2s ease-in-out !important;
+}
+
+.nav-cta-group .reserve-btn:hover {
+  background-color: #555 !important; /* Specific grey background for grouped button hover */
+  color: #eee !important;            /* Specific dark grey text for grouped button hover */
+  border-color: #000000 !important;     /* Specific grey border for grouped button hover */
 }
 
 #navMenu a {
@@ -146,19 +189,20 @@ header {
   transition: opacity 0.3s ease;
 }
 
-#navMenu a:hover {
+#navMenu a:not(.cta):hover {
   opacity: 0.7;
 }
 
-#navMenu:hover a:not(.cta) {
+/* Only fade other links when hovering the links themselves, not the CTA group */
+#navMenu:hover a:not(.cta):not(:hover) {
     color: #999;
 }
 #navMenu a:hover:not(.cta) {
     color: #000;
 }
 
-/* Make the nav bar's CTA button less bold */
-#navMenu .cta {
+/* Standardize CTA button weight in groups for both Navbar and Hero */
+.nav-cta-group .cta {
   font-weight: 400;
 }
 
@@ -209,18 +253,6 @@ header {
 .hero p {
   font-size: 1.5rem;
   margin-bottom: 2rem;
-}
-
-/* Special CTA button for Hero section */
-.hero .cta {
-  background: transparent; /* Default state is now translucent */
-  color: #fff;
-  border-color: #fff;
-}
-
-.hero .cta:hover {
-  background: #fff; /* Hover state is now white */
-  color: #000;
 }
 
 /* --- Services Section Padding --- */
@@ -286,6 +318,23 @@ header {
   padding: 1rem; /* Add some padding around the content */
   display: flex;
   flex-direction: column; /* This is correct */
+}
+
+.price-line {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+.price-line p {
+  margin: 0 !important;
+  font-weight: bold;
+}
+.price-line p:not(:last-child) {
+  border-right: 1px solid #ccc;
+  padding-right: 1rem;
 }
 
 .info-box-content img {
@@ -510,6 +559,7 @@ input[type="text"],
 input[type="email"],
 input[type="tel"],
 input[type="date"],
+input[type="number"],
 select,
 textarea {
   width: 100%;
@@ -814,6 +864,18 @@ input.datepicker:read-only {
   color: #555;
 }
 
+/* Style for dynamically added client treatment groups */
+.client-treatment-group {
+  margin-bottom: 1rem;
+}
+
+.address-row .address-field {
+  flex: 2;
+}
+
+.address-row .clients-field {
+  flex: 1;
+}
 /* --- Helper Styles --- */
 .link-button {
   background: none;
@@ -861,4 +923,22 @@ input.datepicker:read-only {
   padding: 0;
   line-height: 1;
   color: #555;
+}
+
+/* Force placeholder color for selects, even when disabled.
+   Targeting the select directly is key for the color shown when the dropdown is closed. */
+select.placeholder-selected,
+select.placeholder-selected:disabled,
+select.placeholder-selected option[disabled][selected] {
+  color: #999 !important;
+  -webkit-text-fill-color: #999 !important; /* Forces the grey color in Chrome/Safari/Edge even if disabled */
+  opacity: 1 !important; /* Prevents the browser from fading the text */
+  background-color: #fff !important;
+  border-color: #ccc !important;
+}
+
+/* Ensure the actual duration and time options in the list are always black */
+select.placeholder-selected option:not([disabled]) {
+  color: #000 !important;
+  -webkit-text-fill-color: #000 !important;
 }

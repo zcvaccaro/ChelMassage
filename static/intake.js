@@ -219,6 +219,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const urlParams = new URLSearchParams(window.location.search);
                 payload.bookingDate = urlParams.get('date');
                 payload.bookingTime = urlParams.get('time');
+                payload.calendarId = urlParams.get('calendarId');
+                payload.serviceType = urlParams.get('service');
 
                 // 4. Send data to the new backend endpoint
                 const response = await fetch('/api/submit-intake', {

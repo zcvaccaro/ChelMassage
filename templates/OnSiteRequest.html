@@ -24,7 +24,8 @@
 
   <main class="container reservation-section">
     <h2>On-Site Treatment Request</h2>
-    <p>Please fill out the form below to request a home visit. We will review your request and contact you to finalize the appointment and discuss variable travel costs.</p>
+    <p>Please fill out the form below to request a home visit. I will review your request and contact you to
+      finalize the appointment and discuss variable travel costs.</p>
 
     <form action="{{ url_for('request_confirm_page') }}" class="reservation-form">
       <div class="form-row">
@@ -49,20 +50,20 @@
         </div>
       </div>
 
-      <div class="form-group">
-        <label for="address">Home Visit Address (New Paltz & Surrounding Areas)</label>
-        <input type="text" id="address" name="address" placeholder="Street, City, Zip" required>
+      <div class="form-row address-row">
+        <div class="form-group address-field">
+          <label for="address">Home Visit Address (New Paltz & Surrounding Areas)</label>
+          <input type="text" id="address" name="address" placeholder="Street, City, Zip" required>
+        </div>
+
+        <div class="form-group clients-field">
+          <label for="numberOfClients">Number of Clients (max of 5)</label>
+          <input type="number" id="numberOfClients" name="numberOfClients" min="1" max="5" value="1" required>
+        </div>
       </div>
 
-      <div class="form-group">
-        <label for="treatmentType">Treatment Type Requested</label>
-        <select id="treatmentType" name="treatmentType" required>
-          <option value="" disabled selected>Select a service</option>
-          <option value="Deep Tissue">Deep Tissue</option>
-          <option value="Swedish">Swedish</option>
-          <option value="Prenatal">Prenatal</option>
-          <option value="MFR">Myofascial Release (MFR)</option>
-        </select>
+      <div id="dynamicTreatmentFields">
+        <!-- Dynamic fields for each client will be inserted here by JavaScript -->
       </div>
 
       <fieldset>
@@ -138,6 +139,58 @@
   <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
   <script>
     flatpickr(".datepicker", { minDate: "today", dateFormat: "F j, Y" });
+
+    // --- Dynamic Treatment Fields Logic ---
+    const numberOfClientsInput = document.getElementById('numberOfClients');
+    const dynamicTreatmentFields = document.getElementById('dynamicTreatmentFields');
+
+    const renderTreatmentFields = (count) => {
+      dynamicTreatmentFields.innerHTML = ''; // Clear existing fields
+
+      for (let i = 1; i <= count; i++) {
+        const clientDiv = document.createElement('div');
+        clientDiv.classList.add('client-treatment-group');
+        clientDiv.innerHTML = `
+          <div class="form-row">
+            <div class="form-group">
+              <label for="clientName_${i}">Client ${i} Name</label>
+              <input type="text" id="clientName_${i}" name="clientName_${i}" required>
+            </div>
+            <div class="form-group">
+              <label for="treatmentType_${i}">Client ${i} Treatment Type</label>
+              <select id="treatmentType_${i}" name="treatmentType_${i}" required>
+                <option value="" disabled selected>Select a service</option>
+                <option value="Deep Tissue">Deep Tissue</option>
+                <option value="Swedish">Swedish</option>
+                <option value="Prenatal">Prenatal</option>
+                <option value="MFR">Myofascial Release (MFR)</option>
+              </select>
+            </div>
+          </div>
+        `;
+        dynamicTreatmentFields.appendChild(clientDiv);
+      }
+    };
+
+    // Initial render for 1 client on page load
+    renderTreatmentFields(parseInt(numberOfClientsInput.value));
+
+    // Listen for changes to the number of clients
+    numberOfClientsInput.addEventListener('change', (e) => {
+      const count = parseInt(e.target.value);
+      if (count >= 1 && count <= 5) {
+        renderTreatmentFields(count);
+      } else {
+        // Reset to 1 if invalid input (should be prevented by min/max but good for robustness)
+        e.target.value = 1;
+        renderTreatmentFields(1);
+      }
+    });
+
+    // --- Form Submission Logic ---
+    // The existing submit event listener will automatically pick up the new dynamic fields
+    // because they are within the form and have 'name' attributes.
+
 
     document.querySelector('.reservation-form').addEventListener('submit', async (e) => {
       e.preventDefault();

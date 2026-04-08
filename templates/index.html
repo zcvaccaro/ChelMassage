@@ -69,7 +69,10 @@
         <a href="#services">Services</a>
         <a href="#about">About</a>
         <a href="#contact">Contact</a>
-        <a href="{{ url_for('booking_page') }}" class="cta">Reserve Now</a>
+        <div class="nav-cta-group">
+          <a href="tel:" class="cta call-btn">Call</a>
+          <a href="{{ url_for('booking_page') }}" class="cta reserve-btn">Reserve Now</a>
+        </div>
       </nav>
       <button class="nav-toggle" id="navToggle">☰</button>
     </div>
@@ -81,7 +84,10 @@
     <div class="container">
         <h1>Maintain Your Wellness</h1>
         <p>Expert Massage Therapy in New Paltz, NY</p>
-      <a href="{{ url_for('booking_page') }}" class="cta">Reserve Now</a>
+      <div class="nav-cta-group">
+        <a href="tel:" class="cta call-btn">Call</a>
+        <a href="{{ url_for('booking_page') }}" class="cta reserve-btn">Reserve Now</a>
+      </div>
     </div>
     </section>
 
@@ -93,13 +99,17 @@
       <div class="card-summary">
         <h3>Deep Tissue</h3>
         <p>Targeted Relief</p>
-        <p>60 min — $150</p>
         <button class="learn-more cta">Learn More</button>
       </div>
       <div class="info-box">
         <div class="info-box-content">
           <h3>Deep Tissue</h3>
-          <img src="https://picsum.photos/300/200?random=1" alt="Deep Tissue">
+          <div class="price-line">
+            <p>30 min — $75</p>
+            <p>60 min — $130</p>
+            <p>90 min — $180</p>
+          </div>
+          <img src="static/Images/DeepTissue.png" alt="Deep Tissue">
           <p>Deep Tissue massage is a highly effective method for releasing chronic stress areas due to misalignment,
             repetitive motions, and past injuries. The technique involves slow, deliberate strokes and deep finger pressure on contracted areas,
             either following or going across the grain of muscles, tendons, and fascia. It is particularly beneficial for those with chronic pain,
@@ -117,13 +127,17 @@
       <div class="card-summary">
         <h3>Swedish</h3>
         <p>Pure Relaxation</p>
-        <p>60 min — $140</p>
         <button class="learn-more cta">Learn More</button>
       </div>
       <div class="info-box">
         <div class="info-box-content">
           <h3>Swedish</h3>
-          <img src="https://picsum.photos/300/200?random=2" alt="Swedish Massage">
+          <div class="price-line">
+            <p>30 min — $75</p>
+            <p>60 min — $130</p>
+            <p>90 min — $180</p>
+          </div>
+          <img src="static/Images/Swedish.png" alt="Swedish Massage">
           <p>The Swedish massage is the cornerstone of modern Western massage, designed to relax the entire body.
             This is achieved by rubbing the muscles with long, gliding strokes in the direction of blood returning to the heart.
             Additional techniques include circular pressure, firm kneading, and gentle tapping.
@@ -141,13 +155,15 @@
       <div class="card-summary">
         <h3>Prenatal</h3>
         <p>Maternal Comfort</p>
-        <p>60 min — $160</p>
         <button class="learn-more cta">Learn More</button>
       </div>
       <div class="info-box">
         <div class="info-box-content">
           <h3>Prenatal</h3>
-          <img src="https://picsum.photos/300/200?random=3" alt="Prenatal Massage">
+          <div class="price-line">
+            <p>60 min — $120</p>
+          </div>
+          <img src="static/Images/Prenatal.png" alt="Prenatal Massage">
           <p>Prenatal massage is a therapeutic bodywork that focuses on the special needs of the mother-to-be as her body goes through the
             dramatic changes of pregnancy. It enhances the function of muscles and joints, improves circulation and general body tone,
             and relieves mental and physical fatigue. Using specialized, gentle techniques and supportive pillows for safe positioning,
@@ -163,16 +179,20 @@
 
     <div class="card" data-service-id="mfr">
       <div class="card-summary">
-        <h3>MFR</h3>
-        <p>Restore Mobility</p>
-        <p>60 min — $160</p>
+        <h3>Myofascial Release</h3>
+        <p>The Troubleshooter</p>
         <button class="learn-more cta">Learn More</button>
       </div>
       <div class="info-box">
         <div class="info-box-content">
-          <h3>MFR</h3>
-          <img src="https://picsum.photos/300/200?random=4" alt="Myofascial Release">
-          <p>Myofascial Release (MFR) is a safe and highly effective hands-on technique that involves applying gentle,
+          <h3>Myofascial Release</h3>
+          <div class="price-line">
+            <p>30 min — $85</p>
+            <p>60 min — $140</p>
+            <p>90 min — $190</p>
+          </div>
+          <img src="static/Images/MFR.png" alt="Myofascial Release">
+          <p>Myofasial Release (MFR) is a safe and highly effective hands-on technique that involves applying gentle,
             sustained pressure into the myofascial connective tissue restrictions to eliminate pain and restore motion.
             This specialized approach addresses the fascial system—the web of connective tissue that surrounds and supports your muscles.
             By releasing tension in the fascia, MFR can have profound effects on body alignment, mobility, and pain patterns.
@@ -189,14 +209,21 @@
       <div class="card-summary">
         <h3>On-Site Treatments</h3>
         <p>Home Visits</p>
-        <p>Variable Cost</p>
         <button class="learn-more cta">Learn More</button>
       </div>
       <div class="info-box">
         <div class="info-box-content">
           <h3>On-Site Treatments</h3>
-          <img src="https://picsum.photos/600/300?random=5" alt="On-Site Treatments">
-          <p>Experience professional massage therapy in the comfort and privacy of your own home. Our on-site treatments bring the healing benefits of expert bodywork directly to you, eliminating the need for travel and allowing you to fully relax in your own environment. This service is ideal for those with busy schedules, limited mobility, or anyone who simply prefers a personalized home-based experience. Prices vary based on travel distance and duration of the session.</p>
+          <div class="price-line">
+            <p>Variable Cost</p>
+          </div>
+          <img src="static/Images/OnSite.png" alt="On-Site Treatments">
+          <p>Experience professional massage therapy in the comfort and privacy of your own home.
+            Our on-site treatments bring the healing benefits of expert bodywork directly to you,
+            eliminating the need for travel and allowing you to fully relax in your own environment.
+            This service is available for up to 5 people at the home visit—perfect for families or small groups.
+            This service is also ideal for those with busy schedules or limited mobility.
+            Prices vary based on travel distance and the total duration of the sessions.</p>
         </div>
         <div class="info-box-actions">
           <!-- Linked to the new On-Site Request form -->
@@ -213,22 +240,24 @@
       <img src="static/Images/OurPromise.png" alt="Our promise for compassionate and inclusive massage care" />
     <div class="about-text">
         <h2>Chelsea's Intention for Care</h2>
-      <p>I am deeply dedicated to supporting any health condition that can be improved through bodywork,
-        and I proudly welcome people of all ages, backgrounds, and abilities. My practice is built on inclusivity,
-        respect, and the belief that everyone deserves skilled, compassionate care—whether you’re seeking relief, recovery,
-        or simply a moment to reconnect with your body.</p>
+      <p>Allow me to give you a tour of your self. My goal is not only to get to know you but to provide an experience where you
+        can connect with your body in a unique way.
+         Just as you wouldn’t wait for a special occasion to maintain your car, your body is a finely-tuned piece of machinery
+         that benefits from routine care. I offer an eclectic blend of massage modalities tailored to meet your specific needs and intentions.
+         I am wholeheartedly dedicated to each client, and together, we will collaborate on your physical wellness and peace of mind.</p>
     </div>
   </section>
 
   <section class="about container" id="about-me">
     <div class="about-text">
       <h2>About Me</h2>
-      <p>Chelsea Vaccaro is a licensed massage therapist with over 15 years of hands-on experience and an unwavering belief that the body
-        is always capable of change. Known for blending intuition with skill, Chelsea brings a thoughtful, results-driven approach to every
-        session—grounded in science, refined through experience, and fueled by a genuine love of learning.
-        With specialized expertise in myofascial release and prenatal massage, Chelsea works with clients navigating pain, tension,
-        stress, injury, and the many physical shifts life can bring. Her commitment to continued education ensures that her techniques
-        evolve alongside the latest understanding of the body, allowing her to tailor each session to the individual.</p>
+      <p>My name is Chelsea Vaccaro. I am a licensed massage therapist who has been practicing bodywork since 2010, bringing well over a decade of
+        experience and having worked with tens of thousands of clients. I was drawn to bodywork at an early age and always knew that
+        holistic medicine was my path.
+        My results-driven approach to every session is grounded in science and refined through experience and camaraderie with my clients.
+        I work with people navigating pain, tension,stress, injury, and the many physical shifts life can bring.
+        I am incredibly grateful to have found my gift, and my purpose is to give it away.
+        Please allow me to advance your awareness about yourself.</p>
     </div>
       <img src="static/Images/AboutMe.png" alt="Chelsea Vaccaro, Licensed Massage Therapist in New Paltz, NY" />
   </section>
@@ -236,8 +265,9 @@
 
   <section class="contact" id="contact">
     <h2>Contact Us</h2>
-    <p>123 Main Street, Suite 100, New Paltz, NY 12561</p>
+    <p>169 Main Street, New Paltz, NY 12561</p>
     <p>(555) 123-4567</p>
+    <p><a href="mailto:info@chelseavaccaromassage.com" style="text-decoration: underline;">info@chelseavaccaromassage.com</a></p>
     <p>Mon–Thu: 9AM–8PM • Fri–Sun: 9AM–7PM</p>
   </section>
 

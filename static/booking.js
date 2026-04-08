@@ -7,15 +7,64 @@ document.addEventListener('DOMContentLoaded', () => {
     const cardNumberInput = document.getElementById('cardNumber');
     const cardExpiryInput = document.getElementById('cardExpiry');
 
+    // --- 0. Service Length and Pricing Data ---
+    const servicePricing = {
+        'swedish': [
+            { length: 30, price: 75 },
+            { length: 60, price: 130 },
+            { length: 90, price: 180 }
+        ],
+        'deep-tissue': [
+            { length: 30, price: 75 },
+            { length: 60, price: 130 },
+            { length: 90, price: 180 }
+        ],
+        'prenatal': [
+            { length: 60, price: 120 }
+        ],
+        'mfr': [
+            { length: 30, price: 85 },
+            { length: 60, price: 140 },
+            { length: 90, price: 190 }
+        ]
+    };
+
+    const updateLengthOptions = () => {
+        const selectedService = serviceSelect.value;
+        if (servicePricing[selectedService]) {
+            lengthSelect.innerHTML = '<option value="" disabled selected>Select duration</option>';
+            lengthSelect.classList.add('placeholder-selected');
+            servicePricing[selectedService].forEach(opt => {
+                const option = document.createElement('option');
+                option.value = opt.length;
+                option.textContent = `${opt.length} min — $${opt.price}`;
+                lengthSelect.appendChild(option);
+            });
+            lengthSelect.disabled = false;
+        } else {
+            lengthSelect.innerHTML = '<option value="" disabled selected>Please select service first</option>';
+            lengthSelect.classList.add('placeholder-selected');
+            lengthSelect.disabled = true;
+        }
+        // Reset time availability because service/length context has changed
+        fetchAndDisplayAvailability();
+    };
+
     // --- 1. Fetch and Display Availability ---
 
     const fetchAndDisplayAvailability = async () => {
-        const selectedDate = dateInput._flatpickr.selectedDates[0];
+        // Guard against accessing flatpickr before it is initialized
+        const selectedDate = dateInput._flatpickr ? dateInput._flatpickr.selectedDates[0] : null;
         const duration = lengthSelect.value;
 
-        // Don't fetch if we don't have both a date and a duration
-        if (!selectedDate || !duration) {
-            timeSelect.innerHTML = '<option value="" disabled selected>Select a service length</option>';
+        // Differentiate placeholders based on what is missing
+        if (!selectedDate) {
+            timeSelect.innerHTML = '<option value="" disabled selected>Please select a date first...</option>';
+            timeSelect.classList.add('placeholder-selected');
+            timeSelect.disabled = true;
+            return;
+        } else if (!duration) {
+            timeSelect.innerHTML = '<option value="" disabled selected>Please select a duration first...</option>';
             timeSelect.classList.add('placeholder-selected');
             timeSelect.disabled = true;
             return;
@@ -132,7 +181,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 lastName: formData.get('lastName'),
                 email: formData.get('email'),
                 phone: formData.get('phone'),
-                comments: formData.get('comments')
+                comments: formData.get('comments'),
+                service: serviceName,
+                calendarId: result.calendar_event_id
             });
             const redirectUrl = `/BookingConfirm.html?${params.toString()}`;
             window.location.href = redirectUrl;
@@ -177,7 +228,10 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeDatePicker(); // Run the initialization
 
     // Also fetch availability when the service length changes
-    lengthSelect.addEventListener('change', fetchAndDisplayAvailability);
+    lengthSelect.addEventListener('change', () => {
+        lengthSelect.classList.remove('placeholder-selected');
+        fetchAndDisplayAvailability();
+    });
 
     // When a real time is selected, remove the placeholder styling
     timeSelect.addEventListener('change', () => {
@@ -210,10 +264,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const preselectService = () => {
         const urlParams = new URLSearchParams(window.location.search);
         const service = urlParams.get('service');
-        if (service && serviceSelect) {
-            serviceSelect.value = service;
+        if (serviceSelect) {
+            if (service) {
+                serviceSelect.value = service;
+            }
+            updateLengthOptions(); // Initialize length options based on selection
         }
     };
+
+    serviceSelect.addEventListener('change', updateLengthOptions);
+
+
 
     preselectService(); // Run on page load
 
