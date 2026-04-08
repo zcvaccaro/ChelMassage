@@ -40,8 +40,8 @@ SCOPES = [
     'https://www.googleapis.com/auth/drive.file'
 ]
 SERVICE_ACCOUNT_FILE = 'key.json'
-CALENDAR_ID = os.getenv("CALENDAR_ID").strip()
-SPREADSHEET_ID = os.getenv("SPREADSHEET_ID").strip()
+CALENDAR_ID = os.getenv("CALENDAR_ID", "").strip()
+SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "").strip()
 DRIVE_FOLDER_ID = os.getenv("DRIVE_FOLDER_ID", "").strip()
 LOCAL_TIMEZONE = os.getenv("LOCAL_TIMEZONE", "America/New_York").strip()
 
