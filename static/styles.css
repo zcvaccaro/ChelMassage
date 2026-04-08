@@ -136,6 +136,17 @@ header {
   line-height: 0.85; /* Brought closer together for better visual grouping */
 }
 
+.logo a {
+  display: flex; /* Use flexbox to align logo and text */
+  align-items: center; /* Vertically center items */
+  gap: 0.5rem; /* Space between logo and text */
+}
+
+.navbar-logo {
+  height: 6.5rem; /* Increased size for a more prominent brand presence */
+  width: auto; /* Maintain aspect ratio */
+}
+
 .logo small {
   font-size: 1.2rem;
   font-weight: normal;

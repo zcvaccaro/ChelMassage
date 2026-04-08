@@ -63,7 +63,11 @@
 <body>
   <header>
     <div class="container header-inner">
-      <div class="logo"><a href="{{ url_for('home') }}">Chelsea Vaccaro<br><small>Therapeutic Massage</small></a></div>
+      <div class="logo">
+        <a href="{{ url_for('home') }}">
+          <img src="{{ url_for('static', filename='Images/LOGO.svg') }}" alt="Chelsea Vaccaro Therapeutic Massage Logo" class="navbar-logo">
+          <span class="logo-text">Chelsea Vaccaro<br><small>Therapeutic Massage</small></span></a>
+      </div>
       <nav id="navMenu">
         <a href="{{ url_for('home') }}">Home</a>
         <a href="#services">Services</a>
@@ -109,7 +113,7 @@
             <p>60 min — $130</p>
             <p>90 min — $180</p>
           </div>
-          <img src="static/Images/DeepTissue.png" alt="Deep Tissue">
+          <img src="https://picsum.photos/300/200?random=1" alt="Deep Tissue">
           <p>Deep Tissue massage is a highly effective method for releasing chronic stress areas due to misalignment,
             repetitive motions, and past injuries. The technique involves slow, deliberate strokes and deep finger pressure on contracted areas,
             either following or going across the grain of muscles, tendons, and fascia. It is particularly beneficial for those with chronic pain,
@@ -137,7 +141,7 @@
             <p>60 min — $130</p>
             <p>90 min — $180</p>
           </div>
-          <img src="static/Images/Swedish.png" alt="Swedish Massage">
+          <img src="https://picsum.photos/300/200?random=2" alt="Swedish Massage">
           <p>The Swedish massage is the cornerstone of modern Western massage, designed to relax the entire body.
             This is achieved by rubbing the muscles with long, gliding strokes in the direction of blood returning to the heart.
             Additional techniques include circular pressure, firm kneading, and gentle tapping.
@@ -163,7 +167,7 @@
           <div class="price-line">
             <p>60 min — $120</p>
           </div>
-          <img src="static/Images/Prenatal.png" alt="Prenatal Massage">
+          <img src="https://picsum.photos/300/200?random=3" alt="Prenatal Massage">
           <p>Prenatal massage is a therapeutic bodywork that focuses on the special needs of the mother-to-be as her body goes through the
             dramatic changes of pregnancy. It enhances the function of muscles and joints, improves circulation and general body tone,
             and relieves mental and physical fatigue. Using specialized, gentle techniques and supportive pillows for safe positioning,
@@ -191,8 +195,8 @@
             <p>60 min — $140</p>
             <p>90 min — $190</p>
           </div>
-          <img src="static/Images/MFR.png" alt="Myofascial Release">
-          <p>Myofasial Release (MFR) is a safe and highly effective hands-on technique that involves applying gentle,
+          <img src="https://picsum.photos/300/200?random=4" alt="Myofascial Release">
+          <p>Myofascial Release (MFR) is a safe and highly effective hands-on technique that involves applying gentle,
             sustained pressure into the myofascial connective tissue restrictions to eliminate pain and restore motion.
             This specialized approach addresses the fascial system—the web of connective tissue that surrounds and supports your muscles.
             By releasing tension in the fascia, MFR can have profound effects on body alignment, mobility, and pain patterns.
@@ -217,13 +221,8 @@
           <div class="price-line">
             <p>Variable Cost</p>
           </div>
-          <img src="static/Images/OnSite.png" alt="On-Site Treatments">
-          <p>Experience professional massage therapy in the comfort and privacy of your own home.
-            Our on-site treatments bring the healing benefits of expert bodywork directly to you,
-            eliminating the need for travel and allowing you to fully relax in your own environment.
-            This service is available for up to 5 people at the home visit—perfect for families or small groups.
-            This service is also ideal for those with busy schedules or limited mobility.
-            Prices vary based on travel distance and the total duration of the sessions.</p>
+          <img src="https://picsum.photos/600/300?random=5" alt="On-Site Treatments">
+          <p>Experience professional massage therapy in the comfort and privacy of your own home. Our on-site treatments bring the healing benefits of expert bodywork directly to you, eliminating the need for travel and allowing you to fully relax in your own environment. This service is available for as many people as you would like at the home visit—perfect for families or small groups. This service is also ideal for those with busy schedules or limited mobility. Prices vary based on travel distance and the total duration of the sessions.</p>
         </div>
         <div class="info-box-actions">
           <!-- Linked to the new On-Site Request form -->
@@ -265,8 +264,8 @@
 
   <section class="contact" id="contact">
     <h2>Contact Us</h2>
-    <p>169 Main Street, New Paltz, NY 12561</p>
-    <p>(555) 123-4567</p>
+    <p>123 Main Street, Suite 100, New Paltz, NY 12561</p>
+    <p>(555) 123-4567</p> 
     <p><a href="mailto:info@chelseavaccaromassage.com" style="text-decoration: underline;">info@chelseavaccaromassage.com</a></p>
     <p>Mon–Thu: 9AM–8PM • Fri–Sun: 9AM–7PM</p>
   </section>

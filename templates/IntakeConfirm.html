@@ -9,7 +9,11 @@
 <body class="confirmation-page">
   <header>
     <div class="container header-inner">
-      <div class="logo"><a href="{{ url_for('home') }}">Chelsea Vaccaro<br><small>Therapeutic Massage</small></a></div>
+      <div class="logo">
+        <a href="{{ url_for('home') }}">
+          <img src="{{ url_for('static', filename='Images/LOGO.svg') }}" alt="Chelsea Vaccaro Therapeutic Massage Logo" class="navbar-logo">
+          <span class="logo-text">Chelsea Vaccaro<br><small>Therapeutic Massage</small></span></a>
+      </div>
       <nav id="navMenu">
         <a href="{{ url_for('home') }}">Home</a>
         <a href="{{ url_for('home') }}#services">Services</a>
