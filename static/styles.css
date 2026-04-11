@@ -3,6 +3,7 @@
   /* Define CSS variables in the root for easy access */
   --primary-text-color: #333;
   --accent-color-dark: #d9534f; /* A bootstrap-like danger red */
+  --brand-gold: #AB9C59;
 }
 
 * {
@@ -67,9 +68,9 @@ button {
 
 .cta:hover,
 button:hover {
-  background-color: #fff; /* Default: Invert to white background for standalone CTAs */
-  color: #000;            /* Default: Invert to black text for standalone CTAs */
-  border-color: #000; /* Ensure border matches background on hover */
+  background-color: var(--brand-gold);
+  color: #fff;
+  border-color: var(--brand-gold);
 }
 
 /* --- Loading Spinner for Buttons --- */
@@ -104,8 +105,8 @@ button.loading::after {
 
 /* When hovering, the button background changes, so the spinner needs to adapt */
 button.loading:hover::after {
-  border-color: rgba(0, 0, 0, 0.3);
-  border-top-color: #000;
+  border-color: rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
 }
 
 
@@ -145,6 +146,8 @@ header {
 .navbar-logo {
   height: 6.5rem; /* Increased size for a more prominent brand presence */
   width: auto; /* Maintain aspect ratio */
+  /* Applies a filter to transform the SVG color to a slightly darker, more saturated version of the brand gold */
+  filter: invert(60%) sepia(20%) saturate(950%) hue-rotate(11deg) brightness(85%) contrast(92%);
 }
 
 .logo small {
@@ -178,9 +181,9 @@ header {
 }
 
 .nav-cta-group .call-btn:hover {
-  background-color: #555 !important; /* Specific grey background for grouped button hover */
-  color: #eee !important;            /* Specific dark grey text for grouped button hover */
-  border-color: #000000 !important;     /* Specific grey border for grouped button hover */
+  background-color: var(--brand-gold) !important;
+  color: #fff !important;
+  border-color: var(--brand-gold) !important;
 }
 
 .nav-cta-group .reserve-btn {
@@ -189,9 +192,9 @@ header {
 }
 
 .nav-cta-group .reserve-btn:hover {
-  background-color: #555 !important; /* Specific grey background for grouped button hover */
-  color: #eee !important;            /* Specific dark grey text for grouped button hover */
-  border-color: #000000 !important;     /* Specific grey border for grouped button hover */
+  background-color: var(--brand-gold) !important;
+  color: #fff !important;
+  border-color: var(--brand-gold) !important;
 }
 
 #navMenu a {
