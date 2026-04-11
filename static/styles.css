@@ -584,6 +584,8 @@ textarea {
   font-size: 1rem;
   font-family: inherit;
   color: #000;
+  background-color: #fff;
+  -webkit-appearance: none; /* Strips iOS default styling for all inputs */
   -webkit-text-fill-color: #000; /* Forces text to black on iOS for all form fields */
 }
 
@@ -627,6 +629,8 @@ legend {
 /* --- Styles for Input with Icon --- */
 .input-with-icon {
   position: relative;
+  display: block;
+  width: 100%;
 }
 
 .input-with-icon .input-icon {
@@ -657,10 +661,14 @@ input[type="text"]:read-only, input[type="email"]:read-only, input[type="tel"]:r
 
 /* Override read-only style specifically for the flatpickr date input */
 input#date:read-only,
-input.datepicker:read-only {
-  background: #fff !important;
+input.datepicker:read-only,
+input.datepicker {
+  background-color: #ffffff !important;
+  background: #ffffff !important;
   cursor: pointer; /* Use a pointer to indicate it's clickable */
-  -webkit-appearance: none; /* Removes iOS default styling */
+  -webkit-appearance: none !important; /* Removes iOS default styling */
+  -moz-appearance: none !important;
+  appearance: none !important;
   opacity: 1 !important; /* Prevents iOS from greying out readonly fields */
   -webkit-text-fill-color: #000; /* Ensures black text after selection */
 }
@@ -926,6 +934,7 @@ input.datepicker:read-only {
   .date-time-row {
     display: grid !important;
     grid-template-columns: 1fr 1fr !important; /* Force exact 50/50 split */
+    width: 100% !important;
     gap: 0.75rem;
     align-items: flex-end; /* Keeps inputs aligned if labels wrap differently */
   }
