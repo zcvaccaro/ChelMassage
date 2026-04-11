@@ -36,10 +36,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Function to set canvas size based on the image
     const setCanvasSize = () => {
-      canvas.width = image.offsetWidth;
-      canvas.height = image.offsetHeight;
+      const newWidth = image.offsetWidth;
+      const newHeight = image.offsetHeight;
+
+      // Only resize if the dimensions have actually changed to prevent clearing on scroll
+      if (canvas.width === newWidth && canvas.height === newHeight) return;
+
+      // Save current content to restore after resize
+      const tempContent = canvas.toDataURL();
+      
+      canvas.width = newWidth;
+      canvas.height = newHeight;
+
+      const img = new Image();
+      img.onload = () => ctx.drawImage(img, 0, 0, newWidth, newHeight);
+      img.src = tempContent;
+
       ctx.strokeStyle = "red";
-      ctx.lineWidth = 3; // Thick enough to see, but not too thick
+      ctx.lineWidth = 3;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
     };
@@ -140,25 +154,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!form || !agreeTermsCheckbox || !agreeTermsText || !errorMessage) return;
 
-        form.addEventListener('submit', (event) => {
-            // First, check if the rest of the form is valid.
-            // If not, let the browser handle showing the native error messages.
-            if (!form.checkValidity()) {
-                return;
-            }
-
-            // Now, specifically check our custom checkbox.
-            if (!agreeTermsCheckbox.checked) {
-                // If other fields are valid but the box isn't checked,
-                // prevent submission and show our custom error.
-                event.preventDefault();
-
-                // Show our custom error message and styling
-                agreeTermsText.style.color = 'var(--accent-color-dark)';
-                errorMessage.style.display = 'block';
-            }
-        });
-
         // Remove the error styling once the user checks the box
         agreeTermsCheckbox.addEventListener('change', () => {
             agreeTermsText.style.color = ''; // Reset text color
@@ -177,13 +172,28 @@ document.addEventListener('DOMContentLoaded', () => {
             const submitButton = intakeForm.querySelector('button[type="submit"]');
 
             // Check both native and custom validation
-            const termsChecked = document.getElementById('agreeTerms').checked;
+            const agreeTermsCheckbox = document.getElementById('agreeTerms');
+            const termsChecked = agreeTermsCheckbox.checked;
+            
             if (!intakeForm.checkValidity() || !termsChecked) {
-                const firstInvalid = intakeForm.querySelector(':invalid') || ( !termsChecked ? document.getElementById('agreeTerms') : null);
+                e.preventDefault(); // Stop submission to handle custom scroll
+                
+                // Show custom terms error if needed
+                if (!termsChecked) {
+                    document.querySelector('.agreement-text').style.color = 'var(--accent-color-dark)';
+                    document.getElementById('agree-error-message').style.display = 'block';
+                }
+
+                const firstInvalid = intakeForm.querySelector(':invalid') || (!termsChecked ? agreeTermsCheckbox : null);
+                
                 if (firstInvalid) {
-                    const headerOffset = 120; // Account for sticky header height
-                    const elementPosition = firstInvalid.getBoundingClientRect().top + window.pageYOffset;
-                    window.scrollTo({ top: elementPosition - headerOffset, behavior: 'smooth' });
+                    const headerOffset = 150; // Increased offset for better visibility
+                    const elementPosition = firstInvalid.getBoundingClientRect().top + window.scrollY;
+                    
+                    window.scrollTo({
+                        top: elementPosition - headerOffset,
+                        behavior: 'smooth'
+                    });
                     firstInvalid.focus({ preventScroll: true });
                 }
                 intakeForm.reportValidity();

@@ -69,7 +69,6 @@ button {
 .cta:hover,
 button:hover {
   background-color: var(--brand-gold);
-  color: #000;
   color: #fff;
   border-color: var(--brand-gold);
 }
@@ -107,7 +106,6 @@ button.loading::after {
 /* When hovering, the button background changes, so the spinner needs to adapt */
 button.loading:hover::after {
   border-color: rgba(255, 255, 255, 0.3);
-  border-top-color: #000;
   border-top-color: #fff;
 }
 
@@ -184,7 +182,6 @@ header {
 
 .nav-cta-group .call-btn:hover {
   background-color: var(--brand-gold) !important;
-  color: #000 !important;
   color: #fff !important;
   border-color: var(--brand-gold) !important;
 }
@@ -196,7 +193,6 @@ header {
 
 .nav-cta-group .reserve-btn:hover {
   background-color: var(--brand-gold) !important;
-  color: #000 !important;
   color: #fff !important;
   border-color: var(--brand-gold) !important;
 }
