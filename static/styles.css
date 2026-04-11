@@ -954,6 +954,11 @@ input.datepicker {
     min-width: 0;
     width: 100%;
   }
+  /* Narrow the body charts to allow for scrolling gutters on the sides */
+  .body-chart {
+    max-width: 85%;
+    margin: 0 auto;
+  }
   /* Adjust label size slightly on mobile to prevent text wrapping from breaking layouts */
   label {
     font-size: 0.9rem;

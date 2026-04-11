@@ -177,8 +177,16 @@ document.addEventListener('DOMContentLoaded', () => {
             const submitButton = intakeForm.querySelector('button[type="submit"]');
 
             // Check both native and custom validation
-            if (!intakeForm.checkValidity() || !document.getElementById('agreeTerms').checked) {
-                intakeForm.reportValidity(); // Show native validation errors
+            const termsChecked = document.getElementById('agreeTerms').checked;
+            if (!intakeForm.checkValidity() || !termsChecked) {
+                const firstInvalid = intakeForm.querySelector(':invalid') || ( !termsChecked ? document.getElementById('agreeTerms') : null);
+                if (firstInvalid) {
+                    const headerOffset = 120; // Account for sticky header height
+                    const elementPosition = firstInvalid.getBoundingClientRect().top + window.pageYOffset;
+                    window.scrollTo({ top: elementPosition - headerOffset, behavior: 'smooth' });
+                    firstInvalid.focus({ preventScroll: true });
+                }
+                intakeForm.reportValidity();
                 return;
             }
 
