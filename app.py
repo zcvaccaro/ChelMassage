@@ -784,7 +784,8 @@ def submit_intake():
 
         # --- PDF Helper Functions ---
         def write_line(label: str, value: str, is_multiline: bool = False) -> None:
-            if not value: return
+            if not value:
+                return
             pdf.set_font("Helvetica", "B", size=12)
             pdf.cell(40, 7, label, new_x=XPos.RIGHT, new_y=YPos.TOP)
             pdf.set_font("Helvetica", "", size=12)
@@ -820,7 +821,8 @@ def submit_intake():
         # --- Medical History ---
         write_section_header("Medical History")
         conditions = data.get('conditions')
-        if isinstance(conditions, list): conditions = ', '.join(conditions)
+        if isinstance(conditions, list):
+            conditions = ', '.join(conditions)
         write_line("Conditions:", conditions)
         write_line("Allergies:", data.get('allergies', 'N/A'), is_multiline=True)
         pdf.ln(5)
@@ -844,7 +846,8 @@ def submit_intake():
 
             def embed_image(b64_string, x_pos):
                 nonlocal max_drawn_height
-                if not b64_string or 'base64,' not in b64_string: return
+                if not b64_string or 'base64,' not in b64_string:
+                    return
                 try:
                     image_data = base64.b64decode(b64_string.split('base64,')[1])
                     img = Image.open(io.BytesIO(image_data))

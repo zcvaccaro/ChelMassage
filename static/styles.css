@@ -69,6 +69,7 @@ button {
 .cta:hover,
 button:hover {
   background-color: var(--brand-gold);
+  color: #000;
   color: #fff;
   border-color: var(--brand-gold);
 }
@@ -106,6 +107,7 @@ button.loading::after {
 /* When hovering, the button background changes, so the spinner needs to adapt */
 button.loading:hover::after {
   border-color: rgba(255, 255, 255, 0.3);
+  border-top-color: #000;
   border-top-color: #fff;
 }
 
@@ -182,6 +184,7 @@ header {
 
 .nav-cta-group .call-btn:hover {
   background-color: var(--brand-gold) !important;
+  color: #000 !important;
   color: #fff !important;
   border-color: var(--brand-gold) !important;
 }
@@ -193,6 +196,7 @@ header {
 
 .nav-cta-group .reserve-btn:hover {
   background-color: var(--brand-gold) !important;
+  color: #000 !important;
   color: #fff !important;
   border-color: var(--brand-gold) !important;
 }
@@ -586,7 +590,15 @@ textarea {
   color: #000;
   background-color: #fff;
   -webkit-appearance: none; /* Strips iOS default styling for all inputs */
+  appearance: none;
   -webkit-text-fill-color: #000; /* Forces text to black on iOS for all form fields */
+  height: 3rem; /* Explicit height to unify date and time fields */
+  line-height: normal;
+}
+
+textarea {
+  height: auto; /* Ensure textareas can still grow vertically */
+  min-height: 100px;
 }
 
 /* Custom dropdown chevron for selects */
