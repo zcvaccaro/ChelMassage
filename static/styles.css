@@ -561,6 +561,7 @@ body.card-open {
 
 .form-row .form-group {
   flex: 1;
+  min-width: 0; /* Prevents flex items from growing larger than their content container */
 }
 
 label {
@@ -582,6 +583,8 @@ textarea {
   border-radius: 5px;
   font-size: 1rem;
   font-family: inherit;
+  color: #000;
+  -webkit-text-fill-color: #000; /* Forces text to black on iOS for all form fields */
 }
 
 /* Custom dropdown chevron for selects */
@@ -878,9 +881,14 @@ input.datepicker:read-only {
   color: #555;
 }
 
-/* Style for dynamically added client treatment groups */
+/* --- Form Layout & Mobile Optimization --- */
 .client-treatment-group {
   margin-bottom: 1rem;
+}
+
+.address-row {
+  display: flex;
+  gap: 1.5rem;
 }
 
 .address-row .address-field {
@@ -890,6 +898,29 @@ input.datepicker:read-only {
 .address-row .clients-field {
   flex: 1;
 }
+
+@media (max-width: 600px) {
+  /* Stack standard rows on mobile to prevent overlapping and alignment issues */
+  .form-row, 
+  .address-row {
+    flex-direction: column !important;
+    gap: 1.25rem;
+  }
+
+  /* Helper class for rows that should stay side-by-side and split 50/50 (like Date/Time) */
+  .date-time-row {
+    flex-direction: row !important;
+    gap: 0.75rem;
+  }
+  .date-time-row .form-group {
+    flex: 1 !important;
+  }
+  /* Adjust label size slightly on mobile to prevent text wrapping from breaking layouts */
+  label {
+    font-size: 0.9rem;
+  }
+}
+
 /* --- Helper Styles --- */
 .link-button {
   background: none;
@@ -944,8 +975,8 @@ input.datepicker:read-only {
 select.placeholder-selected,
 select.placeholder-selected:disabled,
 select.placeholder-selected option[disabled][selected] {
-  color: #999 !important;
-  -webkit-text-fill-color: #999 !important; /* Forces the grey color in Chrome/Safari/Edge even if disabled */
+  color: #000 !important;
+  -webkit-text-fill-color: #000 !important; /* Ensures black text before selection on iPhone */
   opacity: 1 !important; /* Prevents the browser from fading the text */
   background-color: #fff !important;
   border-color: #ccc !important;

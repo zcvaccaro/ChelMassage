@@ -72,7 +72,7 @@
 
       <fieldset>
         <legend>Requested Availability (Select up to 3 options)</legend>
-        <div class="form-row">
+        <div class="form-row date-time-row">
           <div class="form-group">
             <label for="date1">Date Option 1</label>
             <div class="input-with-icon">
@@ -85,7 +85,7 @@
             <input type="text" id="time1" name="time1" placeholder="e.g. 2pm or Morning" required>
           </div>
         </div>
-        <div class="form-row">
+        <div class="form-row date-time-row">
           <div class="form-group">
             <label for="date2">Date Option 2 (Optional)</label>
             <div class="input-with-icon">
@@ -98,7 +98,7 @@
             <input type="text" id="time2" name="time2" placeholder="e.g. Afternoon">
           </div>
         </div>
-        <div class="form-row">
+        <div class="form-row date-time-row">
           <div class="form-group">
             <label for="date3">Date Option 3 (Optional)</label>
             <div class="input-with-icon">
@@ -155,7 +155,7 @@
         const clientDiv = document.createElement('div');
         clientDiv.classList.add('client-treatment-group');
         clientDiv.innerHTML = `
-          <div class="form-row">
+          <div class="form-row date-time-row">
             <div class="form-group">
               <label for="clientName_${i}">Client ${i} Name</label>
               <input type="text" id="clientName_${i}" name="clientName_${i}" required>
