@@ -143,6 +143,11 @@ header {
   gap: 0.5rem; /* Space between logo and text */
 }
 
+.logo-text {
+  display: flex;
+  flex-direction: column;
+}
+
 .navbar-logo {
   height: 6.5rem; /* Increased size for a more prominent brand presence */
   width: auto; /* Maintain aspect ratio */

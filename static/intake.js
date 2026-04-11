@@ -44,7 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Save current content to restore after resize
       const tempContent = canvas.toDataURL();
-      
+
       canvas.width = newWidth;
       canvas.height = newHeight;
 
@@ -167,38 +167,35 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!intakeForm) return;
 
         intakeForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-
             const submitButton = intakeForm.querySelector('button[type="submit"]');
 
             // Check both native and custom validation
             const agreeTermsCheckbox = document.getElementById('agreeTerms');
             const termsChecked = agreeTermsCheckbox.checked;
-            
+
             if (!intakeForm.checkValidity() || !termsChecked) {
-                e.preventDefault(); // Stop submission to handle custom scroll
-                
-                // Show custom terms error if needed
+                e.preventDefault();
+
                 if (!termsChecked) {
                     document.querySelector('.agreement-text').style.color = 'var(--accent-color-dark)';
                     document.getElementById('agree-error-message').style.display = 'block';
                 }
 
                 const firstInvalid = intakeForm.querySelector(':invalid') || (!termsChecked ? agreeTermsCheckbox : null);
-                
+
                 if (firstInvalid) {
-                    const headerOffset = 150; // Increased offset for better visibility
-                    const elementPosition = firstInvalid.getBoundingClientRect().top + window.scrollY;
-                    
-                    window.scrollTo({
-                        top: elementPosition - headerOffset,
-                        behavior: 'smooth'
-                    });
-                    firstInvalid.focus({ preventScroll: true });
+                    intakeForm.reportValidity(); // Show native bubbles
+
+                    const headerOffset = 120;
+                    const elementPosition = firstInvalid.getBoundingClientRect().top + window.pageYOffset;
+                    window.scrollTo({ top: elementPosition - headerOffset, behavior: 'smooth' });
+
+                    setTimeout(() => firstInvalid.focus({ preventScroll: true }), 100);
                 }
-                intakeForm.reportValidity();
                 return;
             }
+
+            e.preventDefault(); // Valid form, proceed with custom submission
 
             // --- Add loading state to the submit button ---
             submitButton.disabled = true;
