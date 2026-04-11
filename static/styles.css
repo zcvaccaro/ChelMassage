@@ -599,6 +599,15 @@ select {
   padding-right: 45px;
 }
 
+/* Ensure placeholders are grey and text is black */
+::placeholder {
+  color: #888 !important;
+  opacity: 1; /* Fix for Firefox/iOS opacity defaults */
+}
+
+:-ms-input-placeholder { color: #888 !important; }
+::-ms-input-placeholder { color: #888 !important; }
+
 fieldset {
   border: 1px solid #ddd;
   border-radius: 5px;
@@ -646,8 +655,10 @@ input[type="text"]:read-only, input[type="email"]:read-only, input[type="tel"]:r
 /* Override read-only style specifically for the flatpickr date input */
 input#date:read-only,
 input.datepicker:read-only {
-  background-color: #fff;
+  background-color: #fff !important;
   cursor: pointer; /* Use a pointer to indicate it's clickable */
+  opacity: 1 !important; /* Prevents iOS from greying out readonly fields */
+  -webkit-text-fill-color: #000; /* Ensures black text after selection */
 }
 
 
@@ -909,11 +920,14 @@ input.datepicker:read-only {
 
   /* Helper class for rows that should stay side-by-side and split 50/50 (like Date/Time) */
   .date-time-row {
+    display: flex !important;
     flex-direction: row !important;
     gap: 0.75rem;
+    align-items: flex-end; /* Keeps inputs aligned if labels wrap differently */
   }
   .date-time-row .form-group {
-    flex: 1 !important;
+    flex: 1 1 0 !important; /* Forces an exact 50/50 split */
+    min-width: 0;
   }
   /* Adjust label size slightly on mobile to prevent text wrapping from breaking layouts */
   label {

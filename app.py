@@ -40,7 +40,7 @@ SCOPES = [
     'https://www.googleapis.com/auth/drive.file'
 ]
 SERVICE_ACCOUNT_FILE = 'key.json'
-CALENDAR_ID = os.getenv("CALENDAR_ID", "").strip()
+CALENDAR_ID = (os.getenv("CALENDAR_ID") or "primary").strip() or "primary"
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "").strip()
 DRIVE_FOLDER_ID = os.getenv("DRIVE_FOLDER_ID", "").strip()
 LOCAL_TIMEZONE = os.getenv("LOCAL_TIMEZONE", "America/New_York").strip()
@@ -63,10 +63,13 @@ SENDER_EMAIL = os.getenv("SENDER_EMAIL", "").strip()
 if not SENDER_EMAIL:
     print("!!! CRITICAL SYSTEM WARNING: SENDER_EMAIL is not found in .env or system environment. Emails will fail.")
 else:
-    print(f"SYSTEM: Email Service active as: {SENDER_EMAIL}")
-    print(f"SYSTEM: Target Calendar ID: {CALENDAR_ID}")
-    print(f"SYSTEM: Target Spreadsheet ID: {SPREADSHEET_ID}")
-    print(f"SYSTEM: Timezone set to: {LOCAL_TIMEZONE}")
+    print("--- STARTUP SYSTEM CHECK ---")
+    print(f"  > Email Service:  '{SENDER_EMAIL}'")
+    print(f"  > Calendar ID:    '{CALENDAR_ID}'")
+    print(f"  > Spreadsheet ID: '{SPREADSHEET_ID if SPREADSHEET_ID else 'MISSING'}'")
+    print(f"  > Drive Folder:   '{DRIVE_FOLDER_ID if DRIVE_FOLDER_ID else 'MISSING'}'")
+    print(f"  > Timezone:       '{LOCAL_TIMEZONE}'")
+    print("----------------------------")
 
 if not os.path.exists(SERVICE_ACCOUNT_FILE):
     print(f"SYSTEM WARNING: {SERVICE_ACCOUNT_FILE} not found. Calendar/Sheets integration will fail.")
@@ -87,12 +90,14 @@ def get_google_service(service_name, version):
                     with open(token_path, 'w') as token:
                         token.write(creds.to_json())
             if creds and creds.valid:
+                print(f"DEBUG: Using OAuth User Token for {service_name}")
                 return build(service_name, version, credentials=creds)
         except Exception as e:
             print(f"DEBUG: User OAuth failed for {service_name}: {e}")
             creds = None
 
     # 2. Fallback to Service Account (key.json)
+    print(f"DEBUG: Falling back to Service Account for {service_name}")
     if not creds:
         if os.path.exists(SERVICE_ACCOUNT_FILE):
             try:
@@ -235,23 +240,29 @@ def _get_available_dates_list(days_to_scan=90):
         print("DEBUG: _get_available_dates_list: Could not get calendar service.")
         return []
 
+    # Final safety check to prevent 404 // malformed URLs
+    target_id = CALENDAR_ID if CALENDAR_ID and CALENDAR_ID.strip() else "primary"
+
     try:
         events_result = service.events().list(
-            calendarId=CALENDAR_ID,
+            calendarId=target_id,
             timeMin=start_date.isoformat(),
             timeMax=end_date.isoformat(),
             singleEvents=True
         ).execute()
         all_events = events_result.get('items', [])
 
+        if not all_events:
+            print(f"DEBUG: _get_available_dates_list: No events found on calendar {target_id} for the next {days_to_scan} days.")
+
         available_dates = set()
         for event in all_events:
-            if event.get('summary', '').lower() == 'open for bookings':
+            # Added .strip() to handle accidental leading/trailing spaces in Calendar event titles
+            if event.get('summary', '').strip().lower() == 'open for bookings':
                 if 'dateTime' in event['start']:
                     available_dates.add(event['start']['dateTime'].split('T')[0])
                 elif 'date' in event['start']:
                     available_dates.add(event['start']['date'])
-
         return sorted(list(available_dates))
     except Exception as e:
         print(f"ERROR: _get_available_dates_list: Failed to retrieve calendar events: {e}")
@@ -293,9 +304,11 @@ def get_availability():
     if not service:
         return jsonify({"error": "Could not connect to Google Calendar service."}), 500
 
+    target_id = CALENDAR_ID if CALENDAR_ID and CALENDAR_ID.strip() else "primary"
+
     try:
         events_result = service.events().list(
-            calendarId=CALENDAR_ID,
+            calendarId=target_id,
             timeMin=start_of_day.isoformat(),
             timeMax=end_of_day.isoformat(),
             singleEvents=True,
@@ -305,7 +318,7 @@ def get_availability():
 
         open_windows = []
         for event in all_events:
-            if event.get('summary', '').lower() == 'open for bookings' and 'dateTime' in event['start']:
+            if event.get('summary', '').strip().lower() == 'open for bookings' and 'dateTime' in event['start']:
                 open_windows.append({
                     'start': datetime.datetime.fromisoformat(event['start']['dateTime']),
                     'end': datetime.datetime.fromisoformat(event['end']['dateTime'])
@@ -313,7 +326,7 @@ def get_availability():
 
         busy_slots = []
         for event in all_events:
-            if event.get('summary', '').lower() != 'open for bookings' and 'dateTime' in event['start']:
+            if event.get('summary', '').strip().lower() != 'open for bookings' and 'dateTime' in event['start']:
                 busy_slots.append({
                     'start': datetime.datetime.fromisoformat(event['start']['dateTime']),
                     'end': datetime.datetime.fromisoformat(event['end']['dateTime'])
