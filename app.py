@@ -5,12 +5,14 @@ from datetime import timezone, timedelta
 import io
 import os
 import threading
+from twilio.rest import Client as TwilioClient
 from urllib.parse import urlencode
 from typing import Optional
 from zoneinfo import ZoneInfo
+import uuid
 
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify, render_template, url_for
+from flask import Flask, request, jsonify, render_template, url_for, send_from_directory
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 from PIL import Image
@@ -26,11 +28,10 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
+from square.client import Client # Ensure Square Client is imported at the top
 
 # 1. Load environment variables from .env file immediately
 load_dotenv()
-
-app = Flask(__name__, template_folder='templates', static_folder='static')
 
 # --- Configuration ---
 SCOPES = [
@@ -40,6 +41,26 @@ SCOPES = [
     'https://www.googleapis.com/auth/drive.file'
 ]
 SERVICE_ACCOUNT_FILE = 'key.json'
+
+# --- Square Configuration ---
+# Initialize Square client here (best practice for top-level imports)
+
+SQUARE_APP_ID = os.getenv("SQUARE_APPLICATION_ID", "").strip()
+SQUARE_ACCESS_TOKEN = os.getenv("SQUARE_ACCESS_TOKEN", "").strip()
+SQUARE_LOCATION_ID = os.getenv("SQUARE_LOCATION_ID", "").strip()
+SQUARE_ENV = os.getenv("SQUARE_ENVIRONMENT", "sandbox").strip().lower()
+
+# --- Twilio Configuration ---
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
+TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER", "").strip()
+
+twilio_client = TwilioClient(
+    TWILIO_ACCOUNT_SID,
+    TWILIO_AUTH_TOKEN
+)
+
+square_client = Client(access_token=SQUARE_ACCESS_TOKEN, environment=SQUARE_ENV) # Square Client initialized after all env vars are loaded
 CALENDAR_ID = (os.getenv("CALENDAR_ID") or "primary").strip() or "primary"
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "").strip()
 DRIVE_FOLDER_ID = os.getenv("DRIVE_FOLDER_ID", "").strip()
@@ -73,6 +94,8 @@ else:
 
 if not os.path.exists(SERVICE_ACCOUNT_FILE):
     print(f"SYSTEM WARNING: {SERVICE_ACCOUNT_FILE} not found. Calendar/Sheets integration will fail.")
+
+app = Flask(__name__, template_folder='templates', static_folder='static') # Flask app initialized after all global configuration is loaded
 
 def get_google_service(service_name, version):
     """Unified helper to get a Google API service using token.json (User) or key.json (Service Account)."""
@@ -195,6 +218,15 @@ def send_email(receiver_email, subject, body_html, attachment_data=None, attachm
 
 # --- Frontend Routes ---
 
+@app.route('/favicon.ico')
+def favicon():
+    """Serves the LOGO.svg from the Images folder as the favicon."""
+    return send_from_directory(
+        os.path.join(app.static_folder, 'Images'),
+        'LOGO.svg',
+        mimetype='image/svg+xml'
+    )
+
 @app.route('/')
 def home():
     """Serves the main homepage."""
@@ -203,7 +235,12 @@ def home():
 @app.route('/Booking.html')
 def booking_page():
     """Serves the booking page."""
-    return render_template('Booking.html')
+    return render_template(
+        'Booking.html',
+        square_app_id=SQUARE_APP_ID,
+        square_location_id=SQUARE_LOCATION_ID,
+        square_env=SQUARE_ENV
+    )
 
 @app.route('/intake.html')
 def intake_page():
@@ -384,6 +421,7 @@ def book_appointment():
         summary = data['summary']
         description = data.get('description', '')
         service_type = data.get('service_type') # New: Get service type from frontend
+        source_id = data.get('source_id') # Square Token
         client_info = data.get('client', {})
     except (KeyError, TypeError, ValueError) as e:
         return jsonify({"error": f"Invalid or missing data in request: {e}"}), 400
@@ -422,7 +460,10 @@ def book_appointment():
         print(f"ERROR: /api/book: Failed during overlap check: {e}")
         return jsonify({"error": "Could not verify appointment availability. Please try again."}), 500
 
-    full_description = description
+    # Store metadata in description for SMS reminders
+    client_phone = client_info.get('phone', '') # This was already here.
+    meta_desc = f"Phone: {client_phone}\nDuration: {duration} min\nService: {service_type}"
+    full_description = f"{description}\n\n{meta_desc}"
 
     # Pass the determined color ID to the create_event function
     created_event = create_event(service, summary, start_time, end_time, full_description, CALENDAR_ID, color_id=event_color_id)
@@ -472,6 +513,69 @@ def book_appointment():
 
     # --- Define Async Email Task ---
     def _handle_booking_background():
+        square_customer_id = ""
+        square_card_id = ""
+
+        # 0. Create Square Customer and Card on File (if source_id is present)
+        if source_id and client_email:
+            try:
+                # 0.1 Search for existing customer to avoid duplicates
+                search_body = {
+                    "query": {
+                        "filter": {"email_address": {"exact": client_email.strip().lower()}}
+                    },
+                    "limit": 1
+                }
+                search_result = square_client.customers.search_customers(body=search_body)
+
+                if search_result.is_success() and search_result.body.get('customers'):
+                    square_customer_id = search_result.body['customers'][0]['id']
+                    print(f"BACKGROUND_TASK: Existing Square customer found: {square_customer_id}")
+                else:
+                    # Create New Customer
+                    cust_body = {
+                        "given_name": client_info.get('first_name'),
+                        "family_name": client_info.get('last_name'),
+                        "email_address": client_email,
+                        "phone_number": client_info.get('phone'),
+                        "idempotency_key": str(uuid.uuid4())
+                    }
+                    cust_result = square_client.customers.create_customer(body=cust_body)
+                    if cust_result.is_success():
+                        square_customer_id = cust_result.body['customer']['id']
+                    else:
+                        # Detailed logging for debugging sandbox issues
+                        print(f"DEBUG: Customer Creation Failed. Errors: {cust_result.errors}")
+
+                # 0.2 Create Card on File using the token
+                if square_customer_id:
+                    card_body = {
+                        "idempotency_key": str(uuid.uuid4()),
+                        "source_id": source_id,
+                        "card": {
+                            "customer_id": square_customer_id,
+                            "cardholder_name": f"{client_info.get('first_name')} {client_info.get('last_name')}"
+                        }
+                    }
+                    card_result = square_client.cards.create_card(body=card_body)
+                    if card_result.is_success():
+                        square_card_id = card_result.body['card']['id']
+                        print(f"BACKGROUND_TASK: Card {square_card_id} linked to {square_customer_id}")
+                    else:
+                        print(f"DEBUG: Card Link Failed. Errors: {card_result.errors}. Token used: {source_id}")
+
+            except Exception as sq_e:
+                print(f"ERROR: Unexpected Square API error: {sq_e}")
+
+        # Update Calendar description with Square IDs for Admin reference
+        if square_customer_id:
+            admin_notes = f"\n\n--- ADMIN: SQUARE INFO ---\nCustomer ID: {square_customer_id}\nCard ID: {square_card_id}"
+            try:
+                # Assuming `updated_desc` is already defined from previous steps
+                service.events().patch(calendarId=CALENDAR_ID, eventId=calendar_event_id, body={'description': updated_desc + admin_notes}).execute()
+            except Exception as e:
+                print(f"ERROR: Failed to update calendar event with Square IDs: {e}")
+
         # 1. Update "Clients" Sheet immediately upon booking
         try:
             sheets_service = get_sheets_service()
@@ -503,7 +607,9 @@ def book_appointment():
                         client_email,
                         client_info.get('phone', ''),
                         '',  # DOB (Collected at intake)
-                        ''   # Address (Collected at intake)
+                        '',  # Address (Collected at intake)
+                        square_customer_id,  # Column G: Square Customer ID
+                        square_card_id       # Column H: Square Card ID
                     ]
 
                     # Always insert a new row at Row 2 (index 1) to push existing data down
@@ -588,6 +694,163 @@ def book_appointment():
         "event_link": created_event.get('htmlLink'),
         "calendar_event_id": calendar_event_id
     })
+
+@app.route('/api/charge-cancellation', methods=['POST'])
+def charge_cancellation():
+    """
+    Endpoint to manually charge a stored card for a cancellation fee.
+    Requires: square_customer_id, square_card_id, amount (in cents), and appointment_id.
+    """
+    data = request.get_json()
+    cust_id = data.get('square_customer_id')
+    card_id = data.get('square_card_id')
+    amount = data.get('amount') # Amount in cents (e.g., 5000 for $50.00)
+    appt_id = data.get('appointment_id')
+
+    if not all([cust_id, card_id, amount]):
+        return jsonify({"error": "Missing required payment details"}), 400
+
+    payment_body = {
+        "source_id": card_id,
+        "customer_id": cust_id,
+        "amount_money": {"amount": amount, "currency": "USD"},
+        "idempotency_key": str(uuid.uuid4()),
+        "note": f"Authorized cancellation/no-show fee for appointment {appt_id} per client agreement.",
+        "statement_description_identifier": "CANCEL FEE"
+    }
+
+    try:
+        # Create payment using standard SDK body pattern
+        result = square_client.payments.create_payment(body=payment_body)
+        if result.is_success():
+            print(f"PRODUCTION_PAYMENT_SUCCESS: ID {result.body['payment']['id']} for Appt {appt_id}")
+            return jsonify({
+                "status": "success",
+                "payment_id": result.body['payment']['id']
+            }), 200
+
+        # Production logging for failed payments (critical for debugging)
+        print(f"PRODUCTION_PAYMENT_FAILURE: {result.errors}")
+        return jsonify({"error": result.errors}), 400
+    except Exception as e:
+        print(f"PRODUCTION_CRITICAL_ERROR: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+def _send_twilio_sms(phone_number, message_body):
+    """Sends an SMS using the Twilio API."""
+    if not all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER]):
+        print("ERROR: Twilio configuration is incomplete.")
+        return False
+    try:
+        # Ensure E.164 format (assumes US numbers for len 10)
+        clean_phone = "".join(filter(str.isdigit, phone_number))
+        if len(clean_phone) == 10:
+            clean_phone = "+1" + clean_phone
+        elif not clean_phone.startswith('+'):
+            clean_phone = "+" + clean_phone
+
+        twilio_client.messages.create(
+            body=message_body,
+            from_=TWILIO_PHONE_NUMBER,
+            to=clean_phone
+        )
+        return True
+    except Exception as e:
+        print(f"ERROR: Twilio failed to send SMS: {e}")
+        return False
+
+@app.route('/api/cron/reminders', methods=['GET']) # This is the cron job endpoint
+def trigger_reminders():
+    """Cron endpoint to send SMS reminders 26 hours before appointments."""
+    now = datetime.datetime.now(timezone.utc)
+    time_min = now + timedelta(hours=25, minutes=30)
+    time_max = now + timedelta(hours=26, minutes=30)
+
+    service = get_calendar_service()
+    if not service:
+        print("CRON ERROR: Google Calendar service unavailable. Cannot fetch events for reminders.")
+        return jsonify({"error": "Google Calendar service unavailable"}), 500
+
+    try:
+        events_result = service.events().list(
+            calendarId=CALENDAR_ID,
+            timeMin=time_min.isoformat(),
+            timeMax=time_max.isoformat(),
+            singleEvents=True,
+            orderBy='startTime'
+        ).execute()
+        events = events_result.get('items', [])
+
+        sent_count = 0
+        local_tz = ZoneInfo(LOCAL_TIMEZONE)
+
+        for event in events:
+            summary = event.get('summary', '')
+            if summary.lower().strip() == 'open for bookings':
+                continue
+
+            desc = event.get('description', '')
+
+            if "REMINDER_SENT: TRUE" in desc:
+                continue
+
+            # Parse metadata
+            phone = None
+            duration = ""
+            service_type = ""
+
+            for line in desc.split('\n'):
+                line = line.strip()
+                if line.startswith('Phone:'):
+                    phone = line.replace('Phone:', '').strip()
+                elif line.startswith('Duration:'):
+                    duration = line.replace('Duration:', '').strip()
+                elif line.startswith('Service:'):
+                    service_type = line.replace('Service:', '').strip()
+
+            if not phone:
+                continue
+
+            start_dt = datetime.datetime.fromisoformat(event['start']['dateTime'].replace('Z', '+00:00'))
+            local_start = start_dt.astimezone(local_tz)
+            
+            client_name = summary.split("for")[-1].strip() if "for" in summary else "Valued Client" 
+            formatted_date = local_start.strftime('%B %d')
+            formatted_time = local_start.strftime('%I:%M %p')
+
+            # Format the message exactly as requested
+            msg_body = (
+                f"Hi {client_name}, you have a {duration} {service_type} appointment "
+                f"tomorrow {formatted_date} at {formatted_time}. I look forward to seeing you!\n\n"
+                "Chelsea Vaccaro\nReply C to confirm or call to reschedule."
+            )
+
+            if _send_twilio_sms(phone, msg_body):
+                sent_count += 1
+                print(f"INFO: REMINDER SENT: to {phone} for {summary}")
+
+                # Idempotent Calendar Patch
+                try:
+                    if "REMINDER_SENT: TRUE" not in desc:
+                        updated_desc = desc.rstrip() + "\nREMINDER_SENT: TRUE"
+                    else:
+                        updated_desc = desc
+
+                    service.events().patch(
+                        calendarId=CALENDAR_ID,
+                        eventId=event['id'],
+                        body={'description': updated_desc}
+                    ).execute()
+                except Exception as patch_e:
+                    print(f"ERROR: Failed to patch event {event['id']} with idempotency tag: {patch_e}")
+            else:
+                print(f"WARNING: Failed to send reminder for {summary}")
+        
+        return jsonify({"status": "success", "reminders_sent": sent_count})
+    except Exception as e:
+        print(f"CRON ERROR: {e}")
+        return jsonify({"error": str(e)}), 500
+
 
 def _handle_intake_submission_background(data, pdf_output):
     """Handles slow tasks (Sheets, Email) for intake form in the background."""
@@ -1006,7 +1269,7 @@ def _handle_onsite_request_background(data):
                 if d and t:
                     date_time_entries.append(f"{d} at {t}")
             date_time_summary = " | ".join(date_time_entries)
-            
+
             all_client_services_summary = " | ".join(client_services_list)
 
             row_data = [

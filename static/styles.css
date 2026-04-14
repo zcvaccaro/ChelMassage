@@ -282,8 +282,8 @@ header {
 /* --- Services Section --- */
 .services .grid {
   display: grid;
-  /* Mobile-first: 1 column by default */
-  grid-template-columns: 1fr;
+  /* Mobile-first: 2 columns by default */
+  grid-template-columns: repeat(2, 1fr);
   gap: 1.5rem;
 }
 
@@ -490,13 +490,6 @@ footer {
 
 /* --- Grid Breakpoints for Services --- */
 
-/* 2 columns for tablets and small desktops */
-@media (min-width: 600px) {
-  .services .grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-
 /* 4 columns for larger desktops */
 @media (min-width: 1200px) {
   .services .grid {
@@ -555,7 +548,8 @@ body.card-open {
 }
 
 .form-group {
-  display: flex;
+  display: relative;
+  z-index: 1;
   flex-direction: column;
 }
 
@@ -936,8 +930,21 @@ input.datepicker {
 }
 
 @media (max-width: 600px) {
+  /* Refine services grid for 2-column mobile layout */
+  .services .grid {
+    gap: 0.75rem; /* Tighter gap to maximize card space */
+  }
+
+  .card {
+    padding: 1rem; /* Reduced padding for more content room */
+  }
+
+  .card h3 {
+    font-size: 1.1rem; /* Slightly smaller headers to prevent wrapping issues */
+  }
+
   /* Stack standard rows on mobile to prevent overlapping and alignment issues */
-  .form-row, 
+  .form-row,
   .address-row {
     flex-direction: column !important;
     gap: 1.25rem;
@@ -970,49 +977,37 @@ input.datepicker {
 .link-button {
   background: none;
   border: none;
-  color: #333;
+  color: #000;
   text-decoration: underline;
   cursor: pointer;
   padding: 0;
   font-size: inherit;
 }
 
-/* --- Modal Styles --- */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
+.link-button:hover {
+  background: none !important;
+  color: #000 !important;
+  border: none !important;
+}
+
+/* --- Consolidated Square Card Container --- */
+#card-container {
   width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.6);
-  display: none; /* Hidden by default */
-  justify-content: center;
-  align-items: center;
-  z-index: 3000; /* Ensure it's on top of everything */
-}
-
-.modal-content {
-  background: #fff;
-  padding: 2rem;
-  border-radius: 8px;
-  max-width: 600px;
-  width: 90%;
+  min-height: 3rem;
+  margin: 0.5rem 0 1.5rem 0;
+  padding: 0; /* CRITICAL: Padding must be 0 for Square iframe focus to work */
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  background-color: #fff;
   position: relative;
-  box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+  z-index: 10;
+  display: block;
+  visibility: visible;
+  pointer-events: auto !important; /* Forces interaction availability */
 }
 
-.close-modal-btn {
-  position: absolute;
-  top: 10px;
-  right: 15px;
-  font-size: 1.5rem;
-  font-weight: bold;
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 0;
-  line-height: 1;
-  color: #555;
+#card-container.sq-card-component--focused {
+  border-color: var(--brand-gold);
 }
 
 /* Force placeholder color for selects, even when disabled.

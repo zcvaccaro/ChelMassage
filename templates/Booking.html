@@ -6,6 +6,7 @@
   <title>Reserve an Appointment | Massage Therapy</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='Images/LOGO.svg') }}">
 </head>
 <body>
   <header>
@@ -73,7 +74,7 @@
           <div class="form-group">
             <label for="date">Date</label>
             <div class="input-with-icon">
-              <input type="text" id="date" name="date" required placeholder="Select a date...">
+              <input type="text" id="date" name="date" class="datepicker" required placeholder="Select a date...">
               <span class="input-icon"></span>
             </div>
           </div>
@@ -95,20 +96,20 @@
             <label for="cardName">Name on Card</label>
             <input type="text" id="cardName" name="cardName" required>
           </div>
+
           <div class="form-group">
-            <label for="cardNumber">Card Number</label>
-            <input type="text" id="cardNumber" name="cardNumber" required placeholder="XXXX XXXX XXXX XXXX">
+            <label>Credit or Debit Card</label>
+            <div id="card-container"></div>
           </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label for="cardExpiry">Expiration (MM/YY)</label>
-              <input type="text" id="cardExpiry" name="cardExpiry" required placeholder="MM/YY">
-            </div>
-            <div class="form-group">
-              <label for="cardCVC">CCV</label>
-              <input type="text" id="cardCVC" name="cardCVC" required placeholder="XXX">
-            </div>
+
+          <div class="form-group agreement-group" style="margin-top: 1.5rem;">
+            <input type="checkbox" id="authCharge" name="authCharge" required>
+            <span class="agreement-text" style="font-size: 0.9rem; text-align: center;">
+                <strong>I authorize Chelsea Vaccaro Therapeutic Massage to store my card on file and charge cancellation or no-show fees according to policy.</strong>
+            </span>
+            <label for="authCharge" class="checkbox-label"></label>
           </div>
+
           <div class="form-group" style="text-align: center; gap: 0.5rem; margin-top: 1rem;">
             <small>You will not be charged until your appointment.</small>
             <button type="button" id="cancellation-policy-btn" class="link-button">See Cancellation Policy</button>
@@ -134,8 +135,7 @@
         <li><strong>No-show or missed appointment:</strong> 100% of the treatment price.</li>
       </ul>
       <p><em>Note: The first time a client does not show up for their appointment, they will not be charged. However, the above policy will apply to every missed appointment thereafter.</em></p>
-      <p>Any charges incurred must be paid prior to your next scheduled appointment. If you have credit on your account
-        (from a pre-paid package or gift certificate), the fee will be deducted from your balance. We appreciate your understanding.</p>
+      <p>Any charges incurred must be paid prior to your next scheduled appointment. We appreciate your understanding.</p>
     </div>
   </div>
 
@@ -144,6 +144,15 @@
     <p>&copy; 2025 Chelsea Vaccaro Therapeutic Massage. All rights reserved.</p>
   </footer>
 
+  {% if square_env == 'production' %}
+  <script src="https://web.squarecdn.com/v1/square.js"></script>
+  {% else %}
+  <script src="https://sandbox.web.squarecdn.com/v1/square.js"></script>
+  {% endif %}
+  <script>
+    window.SQUARE_APP_ID = "{{ square_app_id }}";
+    window.SQUARE_LOCATION_ID = "{{ square_location_id }}";
+  </script>
   <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
   <script src="{{ url_for('static', filename='main.js') }}"></script>
   <script src="{{ url_for('static', filename='booking.js') }}"></script>

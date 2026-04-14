@@ -10,6 +10,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const value = urlParams.get(param);
             if (value) document.getElementById(fieldId).value = decodeURIComponent(value);
         }
+
+        // Force numeric keypad for phone number on mobile
+        const phoneInput = document.getElementById('phone');
+        if (phoneInput) {
+            phoneInput.setAttribute('inputmode', 'tel');
+        }
     };
 
     // --- 2. Setup drawable canvas for body charts ---
@@ -44,7 +50,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Save current content to restore after resize
       const tempContent = canvas.toDataURL();
-
+      
       canvas.width = newWidth;
       canvas.height = newHeight;
 
@@ -172,25 +178,31 @@ document.addEventListener('DOMContentLoaded', () => {
             // Check both native and custom validation
             const agreeTermsCheckbox = document.getElementById('agreeTerms');
             const termsChecked = agreeTermsCheckbox.checked;
-
+            
             if (!intakeForm.checkValidity() || !termsChecked) {
-                e.preventDefault();
-
+                e.preventDefault(); 
+                
                 if (!termsChecked) {
                     document.querySelector('.agreement-text').style.color = 'var(--accent-color-dark)';
                     document.getElementById('agree-error-message').style.display = 'block';
                 }
 
                 const firstInvalid = intakeForm.querySelector(':invalid') || (!termsChecked ? agreeTermsCheckbox : null);
-
+                
                 if (firstInvalid) {
-                    intakeForm.reportValidity(); // Show native bubbles
+                    const headerOffset = 150; // Offset to clear the sticky header
+                    const elementPosition = firstInvalid.getBoundingClientRect().top + window.scrollY;
+                    
+                    window.scrollTo({
+                        top: elementPosition - headerOffset,
+                        behavior: 'smooth'
+                    });
 
-                    const headerOffset = 120;
-                    const elementPosition = firstInvalid.getBoundingClientRect().top + window.pageYOffset;
-                    window.scrollTo({ top: elementPosition - headerOffset, behavior: 'smooth' });
-
-                    setTimeout(() => firstInvalid.focus({ preventScroll: true }), 100);
+                    // Delay native reporting to allow smooth scroll to finish and prevent header overlap
+                    setTimeout(() => {
+                        firstInvalid.focus({ preventScroll: true });
+                        intakeForm.reportValidity();
+                    }, 400);
                 }
                 return;
             }

@@ -20,6 +20,7 @@
   <meta property="twitter:description" content="Expert massage therapy including Deep Tissue, Swedish, and Prenatal care in the heart of New Paltz.">
 
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='Images/LOGO.svg') }}">
 
   <!-- Structured Data for Local Business -->
   <script type="application/ld+json">
@@ -84,7 +85,7 @@
 
   <main>
     <section class="hero" id="hero">
-      <img src="static/Images/Hero.png" alt="Relaxing massage therapy session at Chelsea Vaccaro Therapeutic Massage in New Paltz" />
+      <img src="{{ url_for('static', filename='Images/Hero.png') }}" alt="Relaxing massage therapy session at Chelsea Vaccaro Therapeutic Massage in New Paltz" />
     <div class="container">
         <h1>Maintain Your Wellness</h1>
         <p>Expert Massage Therapy in New Paltz, NY</p>

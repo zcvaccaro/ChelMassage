@@ -49,9 +49,11 @@ document.addEventListener("DOMContentLoaded", () => {
     // 2. Hide original card and show overlay
     originalCard.style.opacity = '0';
     document.body.appendChild(cardClone);
-    overlay.style.display = 'block';
-    overlay.style.pointerEvents = 'auto'; // Allow the overlay to be clicked
-    requestAnimationFrame(() => overlay.style.opacity = '1');
+    if (overlay) {
+      overlay.style.display = 'block';
+      overlay.style.pointerEvents = 'auto';
+      requestAnimationFrame(() => overlay.style.opacity = '1');
+    }
 
     // 3. Hide summary content, show detailed content
     const summary = cardClone.querySelector('.card-summary');
@@ -81,7 +83,17 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }
 
-    overlay.addEventListener('click', onCloseClick, { once: true }); // Close when overlay is clicked
+    if (bookNowButton) {
+      bookNowButton.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const serviceId = cardClone.getAttribute('data-service-id');
+        onCloseClick(`/Booking.html?service=${serviceId}`);
+      });
+    }
+
+    if (overlay) {
+      overlay.addEventListener('click', () => onCloseClick(), { once: true });
+    }
 
     isAnimating = false;
   };
@@ -96,10 +108,6 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    // Remove close listeners to prevent multiple clicks
-    overlay.removeEventListener('click', onCloseClick); // This listener is now added with {once: true}
-    cardClone.querySelector('.close-card-btn').removeEventListener('click', onCloseClick);
-
     // 1. Fade out detailed content
     const details = cardClone.querySelector('.info-box');
     details.style.transition = 'opacity 0.2s ease-out';
@@ -113,12 +121,15 @@ document.addEventListener("DOMContentLoaded", () => {
     ], { duration: 400, easing: 'ease-in-out', fill: 'forwards' });
 
     // 3. Fade out overlay and clean up
-    overlay.style.opacity = '0';
+    if (overlay) overlay.style.opacity = '0';
+
     setTimeout(() => {
       cardClone.remove();
       originalCard.style.opacity = '1';
-      overlay.style.pointerEvents = 'none';
-      overlay.style.display = 'none';
+      if (overlay) {
+        overlay.style.pointerEvents = 'none';
+        overlay.style.display = 'none';
+      }
       originalCard = null;
       isAnimating = false;
       if (url && typeof url === 'string') {

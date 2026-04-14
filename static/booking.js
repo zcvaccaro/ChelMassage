@@ -4,8 +4,56 @@ document.addEventListener('DOMContentLoaded', () => {
     const bookingForm = document.querySelector('.reservation-form');
     const serviceSelect = document.getElementById('service');
     const lengthSelect = document.getElementById('length');
-    const cardNumberInput = document.getElementById('cardNumber');
-    const cardExpiryInput = document.getElementById('cardExpiry');
+
+    // --- Square Payment SDK Initialization ---
+    const appId = window.SQUARE_APP_ID;
+    const locationId = window.SQUARE_LOCATION_ID;
+
+    let card;
+    let squareInitialized = false;
+
+    // Initialize the Calendar immediately
+    initializeDatePicker();
+
+    // Initialize Square immediately after DOM content is parsed
+    if (window.location.protocol === 'file:') {
+        alert("Square Payments will not work while opening the HTML file directly.");
+    } else {
+        initializeSquare().catch(err => console.error("Square Init Error:", err));
+    }
+
+    async function initializeSquare() {
+        if (squareInitialized) return;
+
+        if (!window.Square) {
+            // Retry once if the script tag hasn't finished loading
+            await new Promise(resolve => setTimeout(resolve, 500));
+            if (!window.Square) {
+                console.error('Square.js failed to load properly');
+                return;
+            }
+        }
+
+        const cardContainer = document.getElementById('card-container');
+        if (!cardContainer) {
+            console.error("Square Initialization Error: #card-container not found in DOM.");
+            return;
+        }
+
+        try {
+            const payments = window.Square.payments(appId, locationId);
+
+            // ✅ FIX: Initializing without a style object resolves focus/typing issues on desktop
+            card = await payments.card();
+            await card.attach('#card-container');
+
+            squareInitialized = true;
+            console.log("✅ Square Card attached successfully");
+
+        } catch (e) {
+            console.error('Square Card Attachment Failed:', e);
+        }
+    }
 
     // --- 0. Service Length and Pricing Data ---
     const servicePricing = {
@@ -126,6 +174,18 @@ document.addEventListener('DOMContentLoaded', () => {
         submitButton.disabled = true;
 
         try {
+            // 1. Tokenize the card with Square
+            if (!card) {
+                alert("Payment form is still loading. Please wait a moment.");
+                submitButton.classList.remove('loading');
+                submitButton.disabled = false;
+                return;
+}
+            const tokenResult = await card.tokenize();
+            if (tokenResult.status !== 'OK') {
+                throw new Error(tokenResult.errors[0].message);
+            }
+
             const selectedDate = dateInput._flatpickr.selectedDates[0];
             const [hour, minute] = timeSelect.value.split(':');
             const startTime = new Date(selectedDate);
@@ -147,6 +207,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 summary: `${serviceName} for ${clientName}`,
                 description: `Comments: ${formData.get('comments')}`,
                 service_type: serviceName, // NEW: Add the service type for calendar coloring
+                source_id: tokenResult.token, // Token string from Square
             };
 
             const response = await fetch('/api/book', {
@@ -155,10 +216,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify(payload)
             });
 
-            let result;
+            let bookingResponse;
             const contentType = response.headers.get("content-type");
             if (contentType && contentType.indexOf("application/json") !== -1) {
-                result = await response.json();
+                bookingResponse = await response.json();
             } else {
                 // If response is not JSON (e.g., HTML error page), handle it gracefully
                 const text = await response.text();
@@ -167,7 +228,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             if (!response.ok) {
-                throw new Error(result.error || 'An unknown error occurred.');
+                throw new Error(bookingResponse.error || 'An unknown error occurred.');
             }
 
             // On success, redirect to the confirmation page.
@@ -183,7 +244,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 phone: formData.get('phone'),
                 comments: formData.get('comments'),
                 service: serviceName,
-                calendarId: result.calendar_event_id
+                calendarId: bookingResponse.calendar_event_id
             });
             const redirectUrl = `/BookingConfirm.html?${params.toString()}`;
             window.location.href = redirectUrl;
@@ -197,25 +258,26 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- 3. Initialize Date Picker with Enabled Dates ---
-    const initializeDatePicker = async () => {
+    async function initializeDatePicker() {
+        // Initialize flatpickr immediately so the grid appears on click
+        const fp = flatpickr("#date", {
+            inline: false, // Desktop friendly: open on click, close on select
+            disableMobile: true,
+            minDate: "today",
+            dateFormat: "Y-m-d",
+            onChange: (selectedDates) => {
+                if (selectedDates.length > 0) fetchAndDisplayAvailability();
+            }
+        });
+
         try {
             // Fetch all available days for the next 90 days
             const response = await fetch('/api/available-days?range=90');
-            if (!response.ok) {
-                throw new Error('Could not fetch available days.');
-            }
+            if (!response.ok) throw new Error('Could not fetch available days.');
             const availableDays = await response.json();
 
-            // Configure and initialize the date picker
-            flatpickr("#date", {
-                minDate: "today",
-                // The 'enable' option acts as a whitelist for dates.
-                enable: availableDays,
-                // When a valid date is selected, fetch the time slots for it.
-                onChange: function(selectedDates) {
-                    fetchAndDisplayAvailability();
-                }
-            });
+            // Update the existing calendar instance with the whitelisted dates from the server
+            fp.set("enable", availableDays);
 
         } catch (error) {
             console.error("Failed to initialize date picker:", error);
@@ -223,9 +285,7 @@ document.addEventListener('DOMContentLoaded', () => {
             dateInput.value = "Could not load calendar.";
             dateInput.disabled = true;
         }
-    };
-
-    initializeDatePicker(); // Run the initialization
+    }
 
     // Also fetch availability when the service length changes
     lengthSelect.addEventListener('change', () => {
@@ -265,42 +325,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const urlParams = new URLSearchParams(window.location.search);
         const service = urlParams.get('service');
         if (serviceSelect) {
-            if (service) {
-                serviceSelect.value = service;
+            if (service && Array.from(serviceSelect.options).some(opt => opt.value === service)) { // Check if the service exists
+                serviceSelect.value = service; // Pre-select the service
             }
-            updateLengthOptions(); // Initialize length options based on selection
+            updateLengthOptions(); // Update duration options and trigger availability fetch
         }
     };
 
-    serviceSelect.addEventListener('change', updateLengthOptions);
+    serviceSelect.addEventListener('change', updateLengthOptions); // Ensure this is still active for manual changes
 
-
-
-    preselectService(); // Run on page load
-
-    // --- 6. Credit Card and Expiration Date Formatting ---
-
-    // Format credit card number with spaces
-    if (cardNumberInput) {
-        cardNumberInput.addEventListener('input', (e) => {
-            let value = e.target.value.replace(/\D/g, ''); // Remove all non-digit characters
-            if (value.length > 16) {
-                value = value.slice(0, 16); // Max 16 digits
-            }
-            // Add a space after every 4 digits
-            const formattedValue = value.replace(/(\d{4})(?=\d)/g, '$1 ');
-            e.target.value = formattedValue;
-        });
-    }
-
-    // Format expiration date with a slash
-    if (cardExpiryInput) {
-        cardExpiryInput.addEventListener('input', (e) => {
-            let value = e.target.value.replace(/\D/g, ''); // Remove all non-digit characters
-            if (value.length > 2) {
-                value = value.slice(0, 2) + '/' + value.slice(2, 4); // Insert a slash after the first two digits (MM)
-            }
-            e.target.value = value;
-        });
-    }
+    preselectService(); // Run on page load (within DOMContentLoaded)
 });
