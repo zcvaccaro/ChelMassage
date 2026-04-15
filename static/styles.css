@@ -1027,3 +1027,15 @@ select.placeholder-selected option:not([disabled]) {
   color: #000 !important;
   -webkit-text-fill-color: #000 !important;
 }
+
+/* --- Flatpickr Calendar Customization --- */
+.flatpickr-day.selected,
+.flatpickr-day.selected:focus,
+.flatpickr-day.selected:hover,
+.flatpickr-day.selected.prevMonthDay,
+.flatpickr-day.selected.nextMonthDay {
+  background: #000 !important;
+  border-color: #000 !important;
+  color: #fff !important;
+  box-shadow: none !important;
+}

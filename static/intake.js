@@ -9,7 +9,11 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         for (const [param, fieldId] of Object.entries(fieldMapping)) {
             const value = urlParams.get(param);
-            if (value) document.getElementById(fieldId).value = decodeURIComponent(value);
+            const element = document.getElementById(fieldId);
+            if (value && element) {
+                // URLSearchParams.get() already decodes the value
+                element.value = value;
+            }
         }
 
         // Force numeric keypad for phone number on mobile

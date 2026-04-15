@@ -338,14 +338,26 @@ def lookup_client():
 
             if (row_email == search_email) or (search_phone and row_phone == search_phone):
                 # Check if square_card_id (Column H) exists
-                has_card_on_file = bool(row[7]) if len(row) > 7 else False
+                square_card_id = row[7] if len(row) > 7 else ""
+                has_card_on_file = bool(square_card_id)
+                card_last_4 = ""
+
+                if has_card_on_file:
+                    try:
+                        # Retrieve card details from Square to get last 4 digits
+                        card_res = square_client.cards.retrieve_card(card_id=square_card_id)
+                        if card_res.is_success():
+                            card_last_4 = card_res.body['card'].get('last_4', '')
+                    except Exception as e:
+                        print(f"DEBUG: Failed to retrieve card details from Square: {e}")
                 
                 return jsonify({
                     "found": True,
                     "firstName": row[0], "lastName": row[1], "email": row[2],
                     "phone": row[3], "dob": row[4] if len(row) > 4 else "",
                     "address": row[5] if len(row) > 5 else "",
-                    "hasCard": has_card_on_file
+                    "hasCard": has_card_on_file,
+                    "last4": card_last_4
                 })
 
         # 2. Fallback: Search the "On-Site Requests" sheet

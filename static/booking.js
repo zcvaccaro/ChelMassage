@@ -288,20 +288,32 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- New: Handle Saved Card UI ---
     const cardContainer = document.getElementById('card-container');
     const savedCardOption = document.getElementById('saved-card-option');
-    const useSavedCardBtn = document.getElementById('use-saved-card-btn');
     const useNewCardBtn = document.getElementById('use-new-card-btn');
     const cardNameInput = document.getElementById('cardName');
     const authChargeCheckbox = document.getElementById('authCharge');
     const authChargeGroup = authChargeCheckbox ? authChargeCheckbox.closest('.agreement-group') : null;
 
     if (hasCardFromLookup) {
-        // Hide new card input and show saved card option
-        if (cardContainer) cardContainer.style.display = 'none';
-        if (cardNameInput) cardNameInput.style.display = 'none';
+        // Update message with last 4 digits from URL
+        const last4 = urlParams.get('last4');
+        if (last4) {
+            const msgPara = savedCardOption.querySelector('p');
+            if (msgPara) {
+                msgPara.innerHTML = `We have a card on file for you ending in <strong>${last4}</strong>. If you would like to use this card, simply submit your booking below. Otherwise...`;
+            }
+        }
+
+        // Hide new card input groups (including labels) and show saved card option
+        if (cardContainer) cardContainer.closest('.form-group').style.display = 'none';
+        if (cardNameInput) {
+            cardNameInput.closest('.form-group').style.display = 'none';
+            cardNameInput.required = false; // Prevent validation from blocking submit
+        }
         if (savedCardOption) savedCardOption.style.display = 'block';
         if (authChargeCheckbox) {
             authChargeCheckbox.checked = true; // Assume authorization for saved card
             authChargeCheckbox.disabled = true; // Disable checkbox
+            authChargeCheckbox.required = false; // Prevent validation from blocking submit
             if (authChargeGroup) authChargeGroup.style.opacity = '0.6'; // Visually indicate disabled
         }
         useSavedCard = true; // Default to using saved card
@@ -316,23 +328,21 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    if (useSavedCardBtn) {
-        useSavedCardBtn.addEventListener('click', () => {
-            useSavedCard = true;
-            if (cardContainer) cardContainer.style.display = 'none';
-            if (cardNameInput) cardNameInput.style.display = 'none';
-            if (savedCardOption) savedCardOption.style.display = 'block';
-            if (authChargeCheckbox) { authChargeCheckbox.checked = true; authChargeCheckbox.disabled = true; if (authChargeGroup) authChargeGroup.style.opacity = '0.6'; }
-        });
-    }
-
     if (useNewCardBtn) {
         useNewCardBtn.addEventListener('click', () => {
             useSavedCard = false;
             if (savedCardOption) savedCardOption.style.display = 'none';
-            if (cardContainer) cardContainer.style.display = 'block';
-            if (cardNameInput) cardNameInput.style.display = 'block';
-            if (authChargeCheckbox) { authChargeCheckbox.disabled = false; authChargeCheckbox.checked = false; if (authChargeGroup) authChargeGroup.style.opacity = '1'; }
+            if (cardContainer) cardContainer.closest('.form-group').style.display = 'block';
+            if (cardNameInput) {
+                cardNameInput.closest('.form-group').style.display = 'block';
+                cardNameInput.required = true;
+            }
+            if (authChargeCheckbox) {
+                authChargeCheckbox.disabled = false;
+                authChargeCheckbox.checked = false;
+                authChargeCheckbox.required = true;
+                if (authChargeGroup) authChargeGroup.style.opacity = '1';
+            }
             // Ensure Square is initialized if it wasn't already (in case user came from hasCard=true path)
             if (!squareInitialized) {
                 initializeSquare().catch(err => console.error("Square Init Error:", err));
