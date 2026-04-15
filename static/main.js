@@ -68,7 +68,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 const params = new URLSearchParams({
                     firstName: data.firstName, lastName: data.lastName,
                     email: data.email, phone: data.phone,
-                    dob: data.dob || '', address: data.address || ''
+                    dob: data.dob || '', address: data.address || '',
+                    hasCard: data.hasCard ? 'true' : 'false'
                 });
                 window.location.href = targetUrl.includes('?') ? `${targetUrl}&${params.toString()}` : `${targetUrl}?${params.toString()}`;
             } else { error.style.display = 'block'; }

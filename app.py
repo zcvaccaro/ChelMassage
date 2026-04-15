@@ -326,7 +326,7 @@ def lookup_client():
         # 1. Search the primary "Clients" sheet
         clients_result = service.spreadsheets().values().get(
             spreadsheetId=SPREADSHEET_ID,
-            range='Clients!A:F'
+            range='Clients!A:H'
         ).execute()
         clients_rows = clients_result.get('values', [])
 
@@ -337,11 +337,15 @@ def lookup_client():
             row_phone = "".join(filter(str.isdigit, row[3])) if len(row) > 3 else ""
 
             if (row_email == search_email) or (search_phone and row_phone == search_phone):
+                # Check if square_card_id (Column H) exists
+                has_card_on_file = bool(row[7]) if len(row) > 7 else False
+                
                 return jsonify({
                     "found": True,
                     "firstName": row[0], "lastName": row[1], "email": row[2],
                     "phone": row[3], "dob": row[4] if len(row) > 4 else "",
-                    "address": row[5] if len(row) > 5 else ""
+                    "address": row[5] if len(row) > 5 else "",
+                    "hasCard": has_card_on_file
                 })
 
         # 2. Fallback: Search the "On-Site Requests" sheet
@@ -372,7 +376,8 @@ def lookup_client():
                     "email": row[1],
                     "phone": row[2] if len(row) > 2 else "",
                     "dob": "", # DOB is not collected during on-site requests
-                    "address": row[3] if len(row) > 3 else ""
+                    "address": row[3] if len(row) > 3 else "",
+                    "hasCard": False # On-site requests don't store cards on file
                 })
 
         return jsonify({"found": False})
@@ -493,6 +498,7 @@ def book_appointment():
         description = data.get('description', '')
         service_type = data.get('service_type') # New: Get service type from frontend
         source_id = data.get('source_id') # Square Token
+        use_card_on_file = data.get('use_card_on_file', False) # New: Flag to use existing card
         client_info = data.get('client', {})
     except (KeyError, TypeError, ValueError) as e:
         return jsonify({"error": f"Invalid or missing data in request: {e}"}), 400
@@ -590,7 +596,28 @@ def book_appointment():
         square_card_id = ""
 
         # 0. Create Square Customer and Card on File (if source_id is present)
-        if source_id and client_email:
+        if use_card_on_file and client_email:
+            # Retrieve existing customer and card IDs from Google Sheet
+            sheets_service = get_sheets_service()
+            if sheets_service:
+                normalized_email = client_email.strip().lower()
+                try:
+                    result = sheets_service.spreadsheets().values().get(
+                        spreadsheetId=SPREADSHEET_ID,
+                        range='Clients!A:H' # Fetch up to Column H to get Square IDs
+                    ).execute()
+                    rows = result.get('values', [])
+                    for row_val in rows:
+                        if row_val and len(row_val) > 2 and row_val[2].strip().lower() == normalized_email:
+                            square_customer_id = row_val[6] if len(row_val) > 6 else ""
+                            square_card_id = row_val[7] if len(row_val) > 7 else ""
+                            print(f"BACKGROUND_TASK: Retrieved existing Square IDs for {client_email}: Cust={square_customer_id}, Card={square_card_id}")
+                            break
+                except Exception as sheet_e:
+                    print(f"ERROR: Failed to retrieve Square IDs from Clients sheet for {client_email}: {sheet_e}")
+            else:
+                print("ERROR: Sheets service not available for retrieving Square IDs.")
+        elif source_id and client_email: # Only process new card if source_id is present
             try:
                 # 0.1 Search for existing customer to avoid duplicates
                 search_body = {
@@ -642,7 +669,7 @@ def book_appointment():
         # Update Calendar description with Square IDs for Admin reference
         if square_customer_id:
             customer_link = f"https://squareup.com/dashboard/customers/directory/customer/{square_customer_id}"
-            admin_notes = f"\n\n--- ADMIN: SQUARE INFO ---\nCustomer Profile: <a href=\"{customer_link}\">Square Card Link</a>\nCustomer ID: {square_customer_id}\nCard ID: {square_card_id}"
+            admin_notes = f"\n\n--- ADMIN: SQUARE INFO ---\nCustomer Profile: <a href=\"{customer_link}\">Square Card Link</a>"
             try:
                 # Fetch the latest description to ensure we append to the most recent version (including SOAP link)
                 current_event = service.events().get(calendarId=CALENDAR_ID, eventId=calendar_event_id).execute()

@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let card;
     let squareInitialized = false;
+    let useSavedCard = false; // New state variable to track user's choice
 
     // Initialize the Calendar immediately
     initializeDatePicker();
@@ -18,7 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Pre-fill Logic for Returning Customers ---
     const prefillFromURL = () => {
         const urlParams = new URLSearchParams(window.location.search);
-        ['firstName', 'lastName', 'email', 'phone'].forEach(id => {
+        ['firstName', 'lastName', 'email', 'phone', 'address', 'dob'].forEach(id => {
             const val = urlParams.get(id);
             const el = document.getElementById(id);
             if (val && el) el.value = val;
@@ -27,10 +28,15 @@ document.addEventListener('DOMContentLoaded', () => {
     prefillFromURL();
 
     // Initialize Square immediately after DOM content is parsed
-    if (window.location.protocol === 'file:') {
-        alert("Square Payments will not work while opening the HTML file directly.");
-    } else {
-        initializeSquare().catch(err => console.error("Square Init Error:", err));
+    const urlParams = new URLSearchParams(window.location.search);
+    const hasCardFromLookup = urlParams.get('hasCard') === 'true';
+
+    if (!hasCardFromLookup) { // Only initialize Square if no card is on file or user chooses new card
+        if (window.location.protocol === 'file:') {
+            alert("Square Payments will not work while opening the HTML file directly.");
+        } else {
+            initializeSquare().catch(err => console.error("Square Init Error:", err));
+        }
     }
 
     async function initializeSquare() {
@@ -185,16 +191,24 @@ document.addEventListener('DOMContentLoaded', () => {
         submitButton.disabled = true;
 
         try {
+            let sourceId = null;
+            let useCardOnFile = false;
+
             // 1. Tokenize the card with Square
-            if (!card) {
-                alert("Payment form is still loading. Please wait a moment.");
-                submitButton.classList.remove('loading');
-                submitButton.disabled = false;
-                return;
-}
-            const tokenResult = await card.tokenize();
-            if (tokenResult.status !== 'OK') {
-                throw new Error(tokenResult.errors[0].message);
+            if (hasCardFromLookup && useSavedCard) {
+                useCardOnFile = true; // Flag to use existing card on file
+            } else {
+                if (!card) {
+                    alert("Payment form is still loading. Please wait a moment.");
+                    submitButton.classList.remove('loading');
+                    submitButton.disabled = false;
+                    return;
+                }
+                const tokenResult = await card.tokenize();
+                if (tokenResult.status !== 'OK') {
+                    throw new Error(tokenResult.errors[0].message);
+                }
+                sourceId = tokenResult.token; // Token for new card
             }
 
             const selectedDate = dateInput._flatpickr.selectedDates[0];
@@ -218,7 +232,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 summary: `${serviceName} for ${clientName}`,
                 description: `Comments: ${formData.get('comments')}`,
                 service_type: serviceName, // NEW: Add the service type for calendar coloring
-                source_id: tokenResult.token, // Token string from Square
+                source_id: sourceId, // Token string from Square (null if using saved card)
+                use_card_on_file: useCardOnFile // New flag for backend
             };
 
             const response = await fetch('/api/book', {
@@ -256,8 +271,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 comments: formData.get('comments'),
                 service: serviceName,
                 calendarId: bookingResponse.calendar_event_id,
-                dob: new URLSearchParams(window.location.search).get('dob') || '',
-                address: new URLSearchParams(window.location.search).get('address') || ''
+                dob: urlParams.get('dob') || '', // Pass DOB from initial lookup
+                address: urlParams.get('address') || '' // Pass Address from initial lookup
             });
             const redirectUrl = `/BookingConfirm.html?${params.toString()}`;
             window.location.href = redirectUrl;
@@ -269,6 +284,61 @@ document.addEventListener('DOMContentLoaded', () => {
             submitButton.disabled = false;
         }
     });
+
+    // --- New: Handle Saved Card UI ---
+    const cardContainer = document.getElementById('card-container');
+    const savedCardOption = document.getElementById('saved-card-option');
+    const useSavedCardBtn = document.getElementById('use-saved-card-btn');
+    const useNewCardBtn = document.getElementById('use-new-card-btn');
+    const cardNameInput = document.getElementById('cardName');
+    const authChargeCheckbox = document.getElementById('authCharge');
+    const authChargeGroup = authChargeCheckbox ? authChargeCheckbox.closest('.agreement-group') : null;
+
+    if (hasCardFromLookup) {
+        // Hide new card input and show saved card option
+        if (cardContainer) cardContainer.style.display = 'none';
+        if (cardNameInput) cardNameInput.style.display = 'none';
+        if (savedCardOption) savedCardOption.style.display = 'block';
+        if (authChargeCheckbox) {
+            authChargeCheckbox.checked = true; // Assume authorization for saved card
+            authChargeCheckbox.disabled = true; // Disable checkbox
+            if (authChargeGroup) authChargeGroup.style.opacity = '0.6'; // Visually indicate disabled
+        }
+        useSavedCard = true; // Default to using saved card
+    } else {
+        // If no card on file, ensure Square is initialized (already done above)
+        if (cardContainer) cardContainer.style.display = 'block';
+        if (cardNameInput) cardNameInput.style.display = 'block';
+        if (savedCardOption) savedCardOption.style.display = 'none';
+        if (authChargeCheckbox) {
+            authChargeCheckbox.disabled = false;
+            if (authChargeGroup) authChargeGroup.style.opacity = '1';
+        }
+    }
+
+    if (useSavedCardBtn) {
+        useSavedCardBtn.addEventListener('click', () => {
+            useSavedCard = true;
+            if (cardContainer) cardContainer.style.display = 'none';
+            if (cardNameInput) cardNameInput.style.display = 'none';
+            if (savedCardOption) savedCardOption.style.display = 'block';
+            if (authChargeCheckbox) { authChargeCheckbox.checked = true; authChargeCheckbox.disabled = true; if (authChargeGroup) authChargeGroup.style.opacity = '0.6'; }
+        });
+    }
+
+    if (useNewCardBtn) {
+        useNewCardBtn.addEventListener('click', () => {
+            useSavedCard = false;
+            if (savedCardOption) savedCardOption.style.display = 'none';
+            if (cardContainer) cardContainer.style.display = 'block';
+            if (cardNameInput) cardNameInput.style.display = 'block';
+            if (authChargeCheckbox) { authChargeCheckbox.disabled = false; authChargeCheckbox.checked = false; if (authChargeGroup) authChargeGroup.style.opacity = '1'; }
+            // Ensure Square is initialized if it wasn't already (in case user came from hasCard=true path)
+            if (!squareInitialized) {
+                initializeSquare().catch(err => console.error("Square Init Error:", err));
+            }
+        });
+    }
 
     // --- 3. Initialize Date Picker with Enabled Dates ---
     async function initializeDatePicker() {

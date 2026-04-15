@@ -102,6 +102,17 @@
             <div id="card-container"></div>
           </div>
 
+          <!-- New placeholder for saved card option -->
+          <div id="saved-card-option" style="display: none;">
+            <p style="text-align: center; margin-bottom: 1rem;">
+              We have a card on file for you. Would you like to use it?
+            </p>
+            <div style="display: flex; justify-content: center; gap: 1rem;">
+              <button type="button" id="use-saved-card-btn" class="cta">Yes, use saved card</button>
+              <button type="button" id="use-new-card-btn" class="cta link-button">No, use a different card</button>
+            </div>
+          </div>
+
           <div class="form-group agreement-group" style="margin-top: 1.5rem;">
             <input type="checkbox" id="authCharge" name="authCharge" required>
             <span class="agreement-text" style="font-size: 0.9rem; text-align: center;">
