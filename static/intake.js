@@ -43,7 +43,8 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         for (const [param, fieldId] of Object.entries(fieldMapping)) {
             const value = urlParams.get(param);
-            if (value) document.getElementById(fieldId).value = decodeURIComponent(value);
+            const element = document.getElementById(fieldId);
+            if (value && element) element.value = value;
         }
 
         // Force numeric keypad for phone number on mobile
@@ -60,6 +61,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const image = container.querySelector("img");
     const undoBtn = container.querySelector(".undo-btn");
+    if (!image || !undoBtn) return;
 
     // Create a wrapper for the image and canvas to position them correctly
     const imageWrapper = document.createElement("div");
