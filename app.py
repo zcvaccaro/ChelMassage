@@ -308,6 +308,77 @@ def _get_available_dates_list(days_to_scan=90):
 
 # --- API Endpoints ---
 
+@app.route('/api/lookup-client', methods=['GET'])
+def lookup_client():
+    """Searches both Clients and On-Site Requests sheets for an existing profile."""
+    identifier = request.args.get('identifier', '').strip()
+    if not identifier:
+        return jsonify({"found": False}), 400
+
+    service = get_sheets_service()
+    if not service:
+        return jsonify({"error": "Sheets service unavailable"}), 500
+
+    try:
+        search_email = identifier.lower()
+        search_phone = "".join(filter(str.isdigit, identifier))
+
+        # 1. Search the primary "Clients" sheet
+        clients_result = service.spreadsheets().values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range='Clients!A:F'
+        ).execute()
+        clients_rows = clients_result.get('values', [])
+
+        for row in clients_rows:
+            if len(row) < 3:
+                continue
+            row_email = row[2].strip().lower()
+            row_phone = "".join(filter(str.isdigit, row[3])) if len(row) > 3 else ""
+
+            if (row_email == search_email) or (search_phone and row_phone == search_phone):
+                return jsonify({
+                    "found": True,
+                    "firstName": row[0], "lastName": row[1], "email": row[2],
+                    "phone": row[3], "dob": row[4] if len(row) > 4 else "",
+                    "address": row[5] if len(row) > 5 else ""
+                })
+
+        # 2. Fallback: Search the "On-Site Requests" sheet
+        # Range A:D captures Full Name, Email, Phone, and Address
+        onsite_result = service.spreadsheets().values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range="'On-Site Requests'!A:D"
+        ).execute()
+        onsite_rows = onsite_result.get('values', [])
+
+        for row in onsite_rows:
+            if len(row) < 2:
+                continue
+            row_email = row[1].strip().lower()
+            row_phone = "".join(filter(str.isdigit, row[2])) if len(row) > 2 else ""
+
+            if (row_email == search_email) or (search_phone and row_phone == search_phone):
+                # Split the full name from column A into first and last parts
+                full_name = row[0]
+                name_parts = full_name.split(' ', 1)
+                first = name_parts[0]
+                last = name_parts[1] if len(name_parts) > 1 else ""
+
+                return jsonify({
+                    "found": True,
+                    "firstName": first,
+                    "lastName": last,
+                    "email": row[1],
+                    "phone": row[2] if len(row) > 2 else "",
+                    "dob": "", # DOB is not collected during on-site requests
+                    "address": row[3] if len(row) > 3 else ""
+                })
+
+        return jsonify({"found": False})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/available-days', methods=['GET'])
 def get_available_days():
     """Scans a date range and returns a list of dates ('YYYY-MM-DD')."""
@@ -968,8 +1039,8 @@ def _handle_intake_submission_background(data, pdf_output):
                 intake_note = f"\n\n--- ADMIN: INTAKE FORM LINK ---\n<a href=\"{drive_link}\">Intake Form</a>"
 
                 calendar_service.events().patch(
-                    calendarId=CALENDAR_ID, 
-                    eventId=calendar_event_id, 
+                    calendarId=CALENDAR_ID,
+                    eventId=calendar_event_id,
                     body={'description': latest_desc + intake_note}
                 ).execute()
                 print(f"BACKGROUND_TASK: Calendar event {calendar_event_id} updated with direct PDF link.")

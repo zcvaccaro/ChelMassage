@@ -15,6 +15,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize the Calendar immediately
     initializeDatePicker();
 
+    // --- Pre-fill Logic for Returning Customers ---
+    const prefillFromURL = () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        ['firstName', 'lastName', 'email', 'phone'].forEach(id => {
+            const val = urlParams.get(id);
+            const el = document.getElementById(id);
+            if (val && el) el.value = val;
+        });
+    };
+    prefillFromURL();
+
     // Initialize Square immediately after DOM content is parsed
     if (window.location.protocol === 'file:') {
         alert("Square Payments will not work while opening the HTML file directly.");
@@ -244,7 +255,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 phone: formData.get('phone'),
                 comments: formData.get('comments'),
                 service: serviceName,
-                calendarId: bookingResponse.calendar_event_id
+                calendarId: bookingResponse.calendar_event_id,
+                dob: new URLSearchParams(window.location.search).get('dob') || '',
+                address: new URLSearchParams(window.location.search).get('address') || ''
             });
             const redirectUrl = `/BookingConfirm.html?${params.toString()}`;
             window.location.href = redirectUrl;

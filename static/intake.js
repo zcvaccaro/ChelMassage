@@ -4,7 +4,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const urlParams = new URLSearchParams(window.location.search);
         const fieldMapping = {
             firstName: 'firstName', lastName: 'lastName', email: 'email',
-            phone: 'phone', comments: 'reason'
+            phone: 'phone', comments: 'reason',
+            dob: 'dob', address: 'address'
         };
         for (const [param, fieldId] of Object.entries(fieldMapping)) {
             const value = urlParams.get(param);

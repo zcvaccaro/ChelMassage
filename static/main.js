@@ -21,6 +21,72 @@ document.addEventListener("DOMContentLoaded", () => {
   let originalCard = null;
   let isAnimating = false;
 
+  // --- Returning Client Lookup Modal ---
+  const showLookupModal = (targetUrl) => {
+    const modalHtml = `
+      <div id="lookup-modal" class="modal-overlay" style="display:flex; opacity:1; pointer-events:auto;">
+          <div class="modal-content" style="text-align: center; max-width: 450px;">
+              <button class="close-modal-btn" id="close-lookup-btn">&times;</button>
+              <h2 style="font-size: 1.8rem; margin-bottom: 0.5rem;">Returning Client?</h2>
+              <p style="margin-bottom: 1.5rem; color: #666;">Enter your email or phone number to pre-fill your info.</p>
+              <form id="lookup-form" class="reservation-form" style="max-width: 100%; gap: 1rem;">
+                  <div class="form-group">
+                      <input type="text" id="lookup-identifier" placeholder="Email or Phone Number" required style="text-align: center;">
+                  </div>
+                  <button type="submit" class="cta" id="lookup-submit-btn" style="width: 100%;">Find My Profile</button>
+                  <p id="lookup-error" style="color: var(--accent-color-dark); display: none; margin-top: 10px; font-size: 0.9rem;">Profile not found.</p>
+              </form>
+              <div style="margin: 1.5rem 0; display: flex; align-items: center; gap: 1rem; color: #ccc;">
+                  <hr style="flex: 1; border: 0; border-top: 1px solid #eee;"><span>or</span><hr style="flex: 1; border: 0; border-top: 1px solid #eee;">
+              </div>
+              <button id="new-client-btn" class="cta" style="width: 100%;">Continue as a new client &rarr;</button>
+          </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    const modal = document.getElementById('lookup-modal');
+    // Close modal when clicking on the overlay (off the modal content)
+    modal.onclick = (e) => {
+        if (e.target === modal) modal.remove();
+    };
+
+    document.getElementById('close-lookup-btn').onclick = () => modal.remove();
+    document.getElementById('new-client-btn').onclick = () => window.location.href = targetUrl;
+
+    document.getElementById('lookup-form').onsubmit = async (e) => {
+        e.preventDefault();
+        const identifier = document.getElementById('lookup-identifier').value;
+        const btn = document.getElementById('lookup-submit-btn');
+        const error = document.getElementById('lookup-error');
+        btn.classList.add('loading');
+        error.style.display = 'none';
+
+        try {
+            const res = await fetch(`/api/lookup-client?identifier=${encodeURIComponent(identifier)}`);
+            const data = await res.json();
+            if (data.found) {
+                const params = new URLSearchParams({
+                    firstName: data.firstName, lastName: data.lastName,
+                    email: data.email, phone: data.phone,
+                    dob: data.dob || '', address: data.address || ''
+                });
+                window.location.href = targetUrl.includes('?') ? `${targetUrl}&${params.toString()}` : `${targetUrl}?${params.toString()}`;
+            } else { error.style.display = 'block'; }
+        } catch (err) { console.error(err); } finally { btn.classList.remove('loading'); }
+    };
+  };
+
+  // Intercept all Booking and OnSite links
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('a, button');
+    if (!btn || e.target.closest('#lookup-modal')) return;
+    const href = btn.getAttribute('href') || '';
+    if (href.includes('Booking.html') || href.includes('OnSiteRequest.html') || btn.classList.contains('reserve-btn')) {
+        e.preventDefault();
+        showLookupModal(href || '/Booking.html');
+    }
+  });
+
   // Helper function to animate elements
   const animateCard = (element, keyframes, options) => {
     return new Promise(resolve => {
@@ -85,9 +151,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (bookNowButton) {
       bookNowButton.addEventListener('click', (e) => {
+        e.preventDefault();
         e.stopPropagation();
+        // Determine target URL based on button href or default to booking
+        let targetUrl = bookNowButton.getAttribute('href') || '/Booking.html';
         const serviceId = cardClone.getAttribute('data-service-id');
-        onCloseClick(`/Booking.html?service=${serviceId}`);
+
+        if (serviceId && !targetUrl.includes('service=')) {
+            targetUrl += (targetUrl.includes('?') ? '&' : '?') + `service=${serviceId}`;
+        }
+
+        showLookupModal(targetUrl);
       });
     }
 
