@@ -50,7 +50,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Save current content to restore after resize
       const tempContent = canvas.toDataURL();
-      
+
       canvas.width = newWidth;
       canvas.height = newHeight;
 

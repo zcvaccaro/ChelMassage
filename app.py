@@ -505,7 +505,7 @@ def book_appointment():
     # Update the Calendar Event description with SOAP and Intake links
     # Using HTML <a> tags to display user-friendly text instead of raw URLs
     try:
-        updated_desc = f"{description}\n\n--- ADMIN: SOAP NOTE LINK ---\n<a href=\"{soap_url}\">SOAP Form</a>\n\n--- ADMIN: INTAKE FORM LINK ---\n<a href=\"{intake_url}\">Intake Form</a>"
+        updated_desc = f"{description}\n\n--- ADMIN: SOAP NOTE LINK ---\n<a href=\"{soap_url}\">SOAP Form</a>"
         service.events().patch(calendarId=CALENDAR_ID, eventId=calendar_event_id, body={'description': updated_desc}).execute()
     except Exception as e:
         print(f"ERROR: Failed to update calendar event with links: {e}")
@@ -954,6 +954,27 @@ def _handle_intake_submission_background(data, pdf_output):
             print(f"BACKGROUND_TASK: PDF uploaded to Drive successfully: {drive_link}")
     except Exception as drive_e:
         print(f"ERROR (background): Failed to upload PDF to Drive: {drive_e}")
+
+    # --- 2.5 Update Calendar Event with PDF Link ---
+    calendar_event_id = data.get('calendarId')
+    if calendar_event_id and drive_link != "Link failed to generate":
+        try:
+            calendar_service = get_calendar_service()
+            if calendar_service:
+                # Fetch current description to append, ensuring we don't wipe out SOAP or Square info
+                event = calendar_service.events().get(calendarId=CALENDAR_ID, eventId=calendar_event_id).execute()
+                latest_desc = event.get('description', '')
+
+                intake_note = f"\n\n--- ADMIN: INTAKE FORM LINK ---\n<a href=\"{drive_link}\">Intake Form</a>"
+
+                calendar_service.events().patch(
+                    calendarId=CALENDAR_ID, 
+                    eventId=calendar_event_id, 
+                    body={'description': latest_desc + intake_note}
+                ).execute()
+                print(f"BACKGROUND_TASK: Calendar event {calendar_event_id} updated with direct PDF link.")
+        except Exception as cal_e:
+            print(f"ERROR (background): Failed to update calendar event with PDF link: {cal_e}")
 
     # --- 3. Update Google Sheets (including the Drive Link) ---
     try:
