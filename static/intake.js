@@ -1,64 +1,14 @@
 document.addEventListener('DOMContentLoaded', () => {
-    // --- 0. Initialize Date of Birth Picker ---
-    const setupDOBPicker = () => {
-        const dobInput = document.getElementById('dob');
-        if (!dobInput) return;
-
-        // Initialize Flatpickr
-        flatpickr(dobInput, {
-            dateFormat: "m/d/Y",
-            allowInput: true,
-            disableMobile: true, // Matches booking calendar style
-            maxDate: "today",    // DOB cannot be in the future
-            yearRange: [1900, new Date().getFullYear()]
-        });
-
-        // Add automatic slash masking while typing
-        dobInput.addEventListener('input', (e) => {
-            let value = e.target.value.replace(/\D/g, ''); // Remove non-digits
-            let formattedValue = '';
-
-            if (value.length > 0) {
-                // Add MM/
-                formattedValue = value.substring(0, 2);
-                if (value.length > 2) {
-                    // Add DD/
-                    formattedValue += '/' + value.substring(2, 4);
-                    if (value.length > 4) {
-                        // Add YYYY
-                        formattedValue += '/' + value.substring(4, 8);
-                    }
-                }
-            }
-            e.target.value = formattedValue;
-        });
-    };
-
     // --- 1. Populate form from URL parameters ---
     const populateFormFromURL = () => {
         const urlParams = new URLSearchParams(window.location.search);
-
-        // Expanded mapping to handle intention/reason and various ID styles
         const fieldMapping = {
-            firstName: ['firstName', 'first_name'],
-            lastName: ['lastName', 'last_name'],
-            email: ['email'],
-            phone: ['phone'],
-            comments: ['intention', 'reason'] // Try 'intention' first, then 'reason'
+            firstName: 'firstName', lastName: 'lastName', email: 'email',
+            phone: 'phone', comments: 'reason'
         };
-
         for (const [param, fieldId] of Object.entries(fieldMapping)) {
             const value = urlParams.get(param);
-            if (!value) continue;
-
-            // Try each possible ID until one is found in the HTML
-            for (const id of fieldId) {
-                const element = document.getElementById(id);
-                if (element) {
-                    element.value = value;
-                    break;
-                }
-            }
+            if (value) document.getElementById(fieldId).value = decodeURIComponent(value);
         }
 
         // Force numeric keypad for phone number on mobile
@@ -75,7 +25,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const image = container.querySelector("img");
     const undoBtn = container.querySelector(".undo-btn");
-    if (!image || !undoBtn) return;
 
     // Create a wrapper for the image and canvas to position them correctly
     const imageWrapper = document.createElement("div");
@@ -87,7 +36,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const canvas = document.createElement("canvas");
     imageWrapper.appendChild(canvas); // Append canvas to the new wrapper
     const ctx = canvas.getContext("2d");
-    
+
     let isDrawing = false;
     let history = [];
 
@@ -96,25 +45,18 @@ document.addEventListener('DOMContentLoaded', () => {
       const newWidth = image.offsetWidth;
       const newHeight = image.offsetHeight;
 
-      // If layout isn't ready yet (0 width), wait and retry
-      if (newWidth === 0) {
-          setTimeout(setCanvasSize, 100);
-          return;
-      }
-
       // Only resize if the dimensions have actually changed to prevent clearing on scroll
       if (canvas.width === newWidth && canvas.height === newHeight) return;
 
       // Save current content to restore after resize
       const tempContent = canvas.toDataURL();
-
+      
       canvas.width = newWidth;
       canvas.height = newHeight;
 
       const img = new Image();
       img.onload = () => ctx.drawImage(img, 0, 0, newWidth, newHeight);
       img.src = tempContent;
-      if (tempContent === "data:,") ctx.clearRect(0,0, newWidth, newHeight);
 
       ctx.strokeStyle = "red";
       ctx.lineWidth = 3;
@@ -127,13 +69,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Set initial size and resize if window changes
     image.onload = setCanvasSize;
-    window.addEventListener("resize", () => {
-        setCanvasSize();
-        // Re-apply styles after resize as they are cleared
-        ctx.strokeStyle = "red";
-        ctx.lineWidth = 3;
-    });
-
+    window.addEventListener("resize", setCanvasSize);
     // If image is already loaded (e.g., from cache)
     if (image.complete) {
       setCanvasSize();
@@ -147,18 +83,18 @@ document.addEventListener('DOMContentLoaded', () => {
     // Undo the last drawing action
     const undo = () => {
       history.pop(); // Remove the last state
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      
       if (history.length > 0) {
         // Restore the previous state
         const img = new Image();
         img.onload = () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(img, 0, 0);
-            // Re-apply drawing styles after image load
-            ctx.strokeStyle = "red";
-            ctx.lineWidth = 3;
         };
         img.src = history[history.length - 1];
+
+      } else {
+        // If history is empty, clear the canvas
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
       }
       // Disable the button if there's nothing left to undo
       undoBtn.disabled = history.length === 0;
@@ -169,8 +105,6 @@ document.addEventListener('DOMContentLoaded', () => {
       const rect = canvas.getBoundingClientRect();
       const scaleX = canvas.width / rect.width;
       const scaleY = canvas.height / rect.height;
-      
-      // Use touch coordinates for mobile, mouse for desktop
       const clientX = e.touches ? e.touches[0].clientX : e.clientX;
       const clientY = e.touches ? e.touches[0].clientY : e.clientY;
       return {
@@ -184,11 +118,6 @@ document.addEventListener('DOMContentLoaded', () => {
       isDrawing = true;
       undoBtn.disabled = false; // Enable the undo button
       const { x, y } = getCoords(e);
-      
-      // Ensure styles are set before starting the stroke
-      ctx.strokeStyle = "red";
-      ctx.lineWidth = 3;
-      
       ctx.beginPath();
       ctx.moveTo(x, y);
     };
@@ -344,7 +273,6 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // --- Initialize all functionalities ---
-    setupDOBPicker();
     populateFormFromURL();
     setupCanvas("body-chart-front");
     setupCanvas("body-chart-back");

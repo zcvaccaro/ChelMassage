@@ -17,8 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
             confirmationMessage.innerHTML = `Thank you for your booking on <strong>${dayOfWeek}, ${date}</strong> at <strong>${time}</strong>! You will receive an email confirmation shortly.<br>As a next step, please fill out our secure client intake form.`;
         }
 
-        // Cleanly forward all parameters to the intake form link
-        const baseUrl = intakeLink.href.split('?')[0];
-        intakeLink.href = `${baseUrl}?${urlParams.toString()}`;
+        // Forward all parameters to the intake form link
+        intakeLink.href = `${intakeLink.href}?${urlParams.toString()}`;
     }
 });
