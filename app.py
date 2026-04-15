@@ -560,7 +560,7 @@ def book_appointment():
                     card_result = square_client.cards.create_card(body=card_body)
                     if card_result.is_success():
                         square_card_id = card_result.body['card']['id']
-                        print(f"BACKGROUND_TASK: Card {square_card_id} linked to {square_customer_id}")
+                        print(f"BACKGROUND_TASK: SUCCESS - Card {square_card_id} linked to {square_customer_id} for {client_email}")
                     else:
                         print(f"DEBUG: Card Link Failed. Errors: {card_result.errors}. Token used: {source_id}")
 
@@ -569,10 +569,13 @@ def book_appointment():
 
         # Update Calendar description with Square IDs for Admin reference
         if square_customer_id:
-            admin_notes = f"\n\n--- ADMIN: SQUARE INFO ---\nCustomer ID: {square_customer_id}\nCard ID: {square_card_id}"
+            customer_link = f"https://squareup.com/dashboard/customers/directory/customer/{square_customer_id}"
+            admin_notes = f"\n\n--- ADMIN: SQUARE INFO ---\nCustomer Profile: {customer_link}\nCustomer ID: {square_customer_id}\nCard ID: {square_card_id}"
             try:
-                # Assuming `updated_desc` is already defined from previous steps
-                service.events().patch(calendarId=CALENDAR_ID, eventId=calendar_event_id, body={'description': updated_desc + admin_notes}).execute()
+                # Fetch the latest description to ensure we append to the most recent version (including SOAP link)
+                current_event = service.events().get(calendarId=CALENDAR_ID, eventId=calendar_event_id).execute()
+                latest_desc = current_event.get('description', '')
+                service.events().patch(calendarId=CALENDAR_ID, eventId=calendar_event_id, body={'description': latest_desc + admin_notes}).execute()
             except Exception as e:
                 print(f"ERROR: Failed to update calendar event with Square IDs: {e}")
 
