@@ -1,4 +1,39 @@
 document.addEventListener('DOMContentLoaded', () => {
+    // --- 0. Initialize Date of Birth Picker ---
+    const setupDOBPicker = () => {
+        const dobInput = document.getElementById('dob');
+        if (!dobInput) return;
+
+        // Initialize Flatpickr
+        flatpickr(dobInput, {
+            dateFormat: "m/d/Y",
+            allowInput: true,
+            disableMobile: true, // Matches booking calendar style
+            maxDate: "today",    // DOB cannot be in the future
+            yearRange: [1900, new Date().getFullYear()]
+        });
+
+        // Add automatic slash masking while typing
+        dobInput.addEventListener('input', (e) => {
+            let value = e.target.value.replace(/\D/g, ''); // Remove non-digits
+            let formattedValue = '';
+
+            if (value.length > 0) {
+                // Add MM/
+                formattedValue = value.substring(0, 2);
+                if (value.length > 2) {
+                    // Add DD/
+                    formattedValue += '/' + value.substring(2, 4);
+                    if (value.length > 4) {
+                        // Add YYYY
+                        formattedValue += '/' + value.substring(4, 8);
+                    }
+                }
+            }
+            e.target.value = formattedValue;
+        });
+    };
+
     // --- 1. Populate form from URL parameters ---
     const populateFormFromURL = () => {
         const urlParams = new URLSearchParams(window.location.search);
@@ -273,6 +308,7 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // --- Initialize all functionalities ---
+    setupDOBPicker();
     populateFormFromURL();
     setupCanvas("body-chart-front");
     setupCanvas("body-chart-back");

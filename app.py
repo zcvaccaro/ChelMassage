@@ -488,28 +488,30 @@ def book_appointment():
     }
     soap_url = f"{soap_form_base}?{urlencode(soap_query)}"
 
-    # Update the Calendar Event description with the SOAP link
-    try:
-        updated_desc = f"{description}\n\n--- ADMIN: SOAP NOTE LINK ---\n{soap_url}"
-        service.events().patch(calendarId=CALENDAR_ID, eventId=calendar_event_id, body={'description': updated_desc}).execute()
-    except Exception as e:
-        print(f"ERROR: Failed to update calendar event with SOAP link: {e}")
-
-    # --- Prepare Data for Emails ---
+    # --- Generate Intake Form URL ---
     client_email = client_info.get('email')
-    client_first_name = client_info.get('first_name', 'Valued Client')
-
     intake_params = {
         'firstName': client_info.get('first_name'),
         'lastName': client_info.get('last_name'),
-        'date': booking_date_formatted, # Add booking date
-        'time': booking_time_formatted, # Add booking time
+        'date': booking_date_formatted,
+        'time': booking_time_formatted,
         'email': client_email,
         'phone': client_info.get('phone'),
         'comments': data.get('description', '').replace('Comments: ', ''),
         'calendarId': calendar_event_id
     }
     intake_url = url_for('intake_page', _external=True) + '?' + urlencode(intake_params)
+
+    # Update the Calendar Event description with SOAP and Intake links
+    # Using HTML <a> tags to display user-friendly text instead of raw URLs
+    try:
+        updated_desc = f"{description}\n\n--- ADMIN: SOAP NOTE LINK ---\n<a href=\"{soap_url}\">SOAP Form</a>\n\n--- ADMIN: INTAKE FORM LINK ---\n<a href=\"{intake_url}\">Intake Form</a>"
+        service.events().patch(calendarId=CALENDAR_ID, eventId=calendar_event_id, body={'description': updated_desc}).execute()
+    except Exception as e:
+        print(f"ERROR: Failed to update calendar event with links: {e}")
+
+    # --- Prepare Data for Emails ---
+    client_first_name = client_info.get('first_name', 'Valued Client')
 
     # --- Define Async Email Task ---
     def _handle_booking_background():
@@ -521,13 +523,12 @@ def book_appointment():
             try:
                 # 0.1 Search for existing customer to avoid duplicates
                 search_body = {
-                    "query": {
-                        "filter": {"email_address": {"exact": client_email.strip().lower()}}
-                    },
+                    "query": { "filter": {
+                        "email_address": {"exact": client_email.strip().lower()}
+                    }},
                     "limit": 1
                 }
                 search_result = square_client.customers.search_customers(body=search_body)
-
                 if search_result.is_success() and search_result.body.get('customers'):
                     square_customer_id = search_result.body['customers'][0]['id']
                     print(f"BACKGROUND_TASK: Existing Square customer found: {square_customer_id}")
@@ -570,7 +571,7 @@ def book_appointment():
         # Update Calendar description with Square IDs for Admin reference
         if square_customer_id:
             customer_link = f"https://squareup.com/dashboard/customers/directory/customer/{square_customer_id}"
-            admin_notes = f"\n\n--- ADMIN: SQUARE INFO ---\nCustomer Profile: {customer_link}\nCustomer ID: {square_customer_id}\nCard ID: {square_card_id}"
+            admin_notes = f"\n\n--- ADMIN: SQUARE INFO ---\nCustomer Profile: <a href=\"{customer_link}\">Square Card Link</a>\nCustomer ID: {square_customer_id}\nCard ID: {square_card_id}"
             try:
                 # Fetch the latest description to ensure we append to the most recent version (including SOAP link)
                 current_event = service.events().get(calendarId=CALENDAR_ID, eventId=calendar_event_id).execute()
@@ -633,7 +634,32 @@ def book_appointment():
                         body={'values': [client_row]}
                     ).execute()
                 else:
-                    print(f"BACKGROUND_TASK: Existing client {client_email} booked. Skipping 'Clients' sheet update.")
+                    print(f"BACKGROUND_TASK: Existing client {client_email} found. Updating latest Square IDs.")
+                    # Find the row index for this email to update the Card ID
+                    target_row_index = -1
+                    for idx, row_val in enumerate(result.get('values', [])):
+                        if row_val and row_val[0].strip().lower() == normalized_email:
+                            target_row_index = idx + 1 # Sheets is 1-indexed
+                            break
+
+                    if target_row_index != -1:
+                        # Update the Square Customer ID and Card ID for the existing client
+                        # This ensures the 'Clients' sheet always has the LATEST authorized card
+                        update_range = f'Clients!G{target_row_index}:H{target_row_index}'
+                        sheets_service.spreadsheets().values().update(
+                            spreadsheetId=SPREADSHEET_ID,
+                            range=update_range,
+                            valueInputOption='USER_ENTERED',
+                            body={'values': [[square_customer_id, square_card_id]]}
+                        ).execute()
+
+                        # Also update Phone if they provided a new one
+                        sheets_service.spreadsheets().values().update(
+                            spreadsheetId=SPREADSHEET_ID,
+                            range=f'Clients!D{target_row_index}',
+                            valueInputOption='USER_ENTERED',
+                            body={'values': [[client_info.get('phone', '')]]}
+                        ).execute()
         except Exception as sheet_e:
             print(f"ERROR (background): Failed to update Clients sheet during booking: {sheet_e}")
 
