@@ -37,14 +37,28 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- 1. Populate form from URL parameters ---
     const populateFormFromURL = () => {
         const urlParams = new URLSearchParams(window.location.search);
+
+        // Expanded mapping to handle intention/reason and various ID styles
         const fieldMapping = {
-            firstName: 'firstName', lastName: 'lastName', email: 'email',
-            phone: 'phone', comments: 'reason'
+            firstName: ['firstName', 'first_name'],
+            lastName: ['lastName', 'last_name'],
+            email: ['email'],
+            phone: ['phone'],
+            comments: ['intention', 'reason'] // Try 'intention' first, then 'reason'
         };
+
         for (const [param, fieldId] of Object.entries(fieldMapping)) {
             const value = urlParams.get(param);
-            const element = document.getElementById(fieldId);
-            if (value && element) element.value = value;
+            if (!value) continue;
+
+            // Try each possible ID until one is found in the HTML
+            for (const id of fieldId) {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.value = value;
+                    break;
+                }
+            }
         }
 
         // Force numeric keypad for phone number on mobile
@@ -73,7 +87,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const canvas = document.createElement("canvas");
     imageWrapper.appendChild(canvas); // Append canvas to the new wrapper
     const ctx = canvas.getContext("2d");
-
+    
     let isDrawing = false;
     let history = [];
 
@@ -82,18 +96,25 @@ document.addEventListener('DOMContentLoaded', () => {
       const newWidth = image.offsetWidth;
       const newHeight = image.offsetHeight;
 
+      // If layout isn't ready yet (0 width), wait and retry
+      if (newWidth === 0) {
+          setTimeout(setCanvasSize, 100);
+          return;
+      }
+
       // Only resize if the dimensions have actually changed to prevent clearing on scroll
       if (canvas.width === newWidth && canvas.height === newHeight) return;
 
       // Save current content to restore after resize
       const tempContent = canvas.toDataURL();
-      
+
       canvas.width = newWidth;
       canvas.height = newHeight;
 
       const img = new Image();
       img.onload = () => ctx.drawImage(img, 0, 0, newWidth, newHeight);
       img.src = tempContent;
+      if (tempContent === "data:,") ctx.clearRect(0,0, newWidth, newHeight);
 
       ctx.strokeStyle = "red";
       ctx.lineWidth = 3;
@@ -106,7 +127,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Set initial size and resize if window changes
     image.onload = setCanvasSize;
-    window.addEventListener("resize", setCanvasSize);
+    window.addEventListener("resize", () => {
+        setCanvasSize();
+        // Re-apply styles after resize as they are cleared
+        ctx.strokeStyle = "red";
+        ctx.lineWidth = 3;
+    });
+
     // If image is already loaded (e.g., from cache)
     if (image.complete) {
       setCanvasSize();
@@ -120,18 +147,18 @@ document.addEventListener('DOMContentLoaded', () => {
     // Undo the last drawing action
     const undo = () => {
       history.pop(); // Remove the last state
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
       if (history.length > 0) {
         // Restore the previous state
         const img = new Image();
         img.onload = () => {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.drawImage(img, 0, 0);
+            // Re-apply drawing styles after image load
+            ctx.strokeStyle = "red";
+            ctx.lineWidth = 3;
         };
         img.src = history[history.length - 1];
-
-      } else {
-        // If history is empty, clear the canvas
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
       }
       // Disable the button if there's nothing left to undo
       undoBtn.disabled = history.length === 0;
@@ -142,6 +169,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const rect = canvas.getBoundingClientRect();
       const scaleX = canvas.width / rect.width;
       const scaleY = canvas.height / rect.height;
+      
+      // Use touch coordinates for mobile, mouse for desktop
       const clientX = e.touches ? e.touches[0].clientX : e.clientX;
       const clientY = e.touches ? e.touches[0].clientY : e.clientY;
       return {
@@ -155,6 +184,11 @@ document.addEventListener('DOMContentLoaded', () => {
       isDrawing = true;
       undoBtn.disabled = false; // Enable the undo button
       const { x, y } = getCoords(e);
+      
+      // Ensure styles are set before starting the stroke
+      ctx.strokeStyle = "red";
+      ctx.lineWidth = 3;
+      
       ctx.beginPath();
       ctx.moveTo(x, y);
     };
