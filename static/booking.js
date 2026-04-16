@@ -364,8 +364,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         try {
-            // Fetch all available days for the next 90 days
-            const response = await fetch('/api/available-days?range=90');
+            // Fetch all available days for the next 180 days
+            const response = await fetch('/api/available-days?range=180');
             if (!response.ok) throw new Error('Could not fetch available days.');
             const availableDays = await response.json();
 
