@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 import uuid
 
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify, render_template, url_for, send_from_directory
+from flask import Flask, request, jsonify, render_template, url_for, send_from_directory, redirect
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 from PIL import Image
@@ -61,7 +61,11 @@ twilio_client = TwilioClient(
 )
 
 square_client = Client(access_token=SQUARE_ACCESS_TOKEN, environment=SQUARE_ENV) # Square Client initialized after all env vars are loaded
-CALENDAR_ID = (os.getenv("CALENDAR_ID") or "primary").strip() or "primary"
+
+CALENDAR_ID_ENV = (os.getenv("CALENDAR_ID") or "primary").strip()
+CALENDAR_IDS = [cid.strip() for cid in CALENDAR_ID_ENV.split(',')]
+PRIMARY_CALENDAR_ID = CALENDAR_IDS[0]
+
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "").strip()
 DRIVE_FOLDER_ID = os.getenv("DRIVE_FOLDER_ID", "").strip()
 LOCAL_TIMEZONE = os.getenv("LOCAL_TIMEZONE", "America/New_York").strip()
@@ -86,7 +90,8 @@ if not SENDER_EMAIL:
 else:
     print("--- STARTUP SYSTEM CHECK ---")
     print(f"  > Email Service:  '{SENDER_EMAIL}'")
-    print(f"  > Calendar ID:    '{CALENDAR_ID}'")
+    print(f"  > Primary Cal:    '{PRIMARY_CALENDAR_ID}'")
+    print(f"  > All Calendars:  {CALENDAR_IDS}")
     print(f"  > Spreadsheet ID: '{SPREADSHEET_ID if SPREADSHEET_ID else 'MISSING'}'")
     print(f"  > Drive Folder:   '{DRIVE_FOLDER_ID if DRIVE_FOLDER_ID else 'MISSING'}'")
     print(f"  > Timezone:       '{LOCAL_TIMEZONE}'")
@@ -244,7 +249,28 @@ def booking_page():
 
 @app.route('/intake.html')
 def intake_page():
-    """Serves the client intake form page."""
+    """Serves the client intake form page, checking for existing submissions."""
+    calendar_id = request.args.get('calendarId')
+
+    if calendar_id:
+        try:
+            sheets_service = get_sheets_service()
+            if sheets_service:
+                # Check column I (Calendar ID) in Intake Forms sheet
+                result = sheets_service.spreadsheets().values().get(
+                    spreadsheetId=SPREADSHEET_ID,
+                    range="'Intake Forms'!I:I"
+                ).execute()
+                
+                rows = result.get('values', [])
+                # Flatten rows into a list of strings
+                existing_ids = [row[0] for row in rows if row]
+                
+                if calendar_id in existing_ids:
+                    return redirect(url_for('intake_confirmation_page'))
+        except Exception as e:
+            print(f"ERROR: Failed to check for existing intake submission: {e}")
+
     return render_template('intake.html')
 
 @app.route('/BookingConfirm.html')
@@ -278,32 +304,32 @@ def _get_available_dates_list(days_to_scan=90):
         return []
 
     # Final safety check to prevent 404 // malformed URLs
-    target_id = CALENDAR_ID if CALENDAR_ID and CALENDAR_ID.strip() else "primary"
+    available_dates_set = set()
 
-    try:
-        events_result = service.events().list(
-            calendarId=target_id,
-            timeMin=start_date.isoformat(),
-            timeMax=end_date.isoformat(),
-            singleEvents=True
-        ).execute()
-        all_events = events_result.get('items', [])
+    for calendar_id in CALENDAR_IDS:
+        try:
+            events_result = service.events().list(
+                calendarId=calendar_id,
+                timeMin=start_date.isoformat(),
+                timeMax=end_date.isoformat(),
+                singleEvents=True
+            ).execute()
+            all_events = events_result.get('items', [])
 
-        if not all_events:
-            print(f"DEBUG: _get_available_dates_list: No events found on calendar {target_id} for the next {days_to_scan} days.")
+            for event in all_events:
+                # Added .strip() to handle accidental leading/trailing spaces in Calendar event titles
+                if event.get('summary', '').strip().lower() == 'open for bookings':
+                    if 'dateTime' in event['start']:
+                        available_dates_set.add(event['start']['dateTime'].split('T')[0])
+                    elif 'date' in event['start']:
+                        available_dates_set.add(event['start']['date'])
+        except Exception as e:
+            print(f"ERROR: _get_available_dates_list: Failed to scan {calendar_id}: {e}")
 
-        available_dates = set()
-        for event in all_events:
-            # Added .strip() to handle accidental leading/trailing spaces in Calendar event titles
-            if event.get('summary', '').strip().lower() == 'open for bookings':
-                if 'dateTime' in event['start']:
-                    available_dates.add(event['start']['dateTime'].split('T')[0])
-                elif 'date' in event['start']:
-                    available_dates.add(event['start']['date'])
-        return sorted(list(available_dates))
-    except Exception as e:
-        print(f"ERROR: _get_available_dates_list: Failed to retrieve calendar events: {e}")
-        return []
+    if not available_dates_set:
+        print(f"DEBUG: _get_available_dates_list: No 'Open for Bookings' events found in {CALENDAR_IDS}")
+
+    return sorted(list(available_dates_set))
 
 
 # --- API Endpoints ---
@@ -350,7 +376,7 @@ def lookup_client():
                             card_last_4 = card_res.body['card'].get('last_4', '')
                     except Exception as e:
                         print(f"DEBUG: Failed to retrieve card details from Square: {e}")
-                
+
                 return jsonify({
                     "found": True,
                     "firstName": row[0], "lastName": row[1], "email": row[2],
@@ -429,46 +455,48 @@ def get_availability():
     if not service:
         return jsonify({"error": "Could not connect to Google Calendar service."}), 500
 
-    target_id = CALENDAR_ID if CALENDAR_ID and CALENDAR_ID.strip() else "primary"
+    open_windows = []
+    busy_slots = []
 
     try:
-        events_result = service.events().list(
-            calendarId=target_id,
-            timeMin=start_of_day.isoformat(),
-            timeMax=end_of_day.isoformat(),
-            singleEvents=True,
-            orderBy='startTime'
-        ).execute()
-        all_events = events_result.get('items', [])
+        # Scan all calendars to collect busy time, and scan for 'Open for Bookings' windows
+        for calendar_id in CALENDAR_IDS:
+            try:
+                events_result = service.events().list(
+                    calendarId=calendar_id,
+                    timeMin=start_of_day.isoformat(),
+                    timeMax=end_of_day.isoformat(),
+                    singleEvents=True,
+                    orderBy='startTime'
+                ).execute()
+                all_events = events_result.get('items', [])
 
-        open_windows = []
-        for event in all_events:
-            if event.get('summary', '').strip().lower() == 'open for bookings' and 'dateTime' in event['start']:
-                open_windows.append({
-                    'start': datetime.datetime.fromisoformat(event['start']['dateTime']),
-                    'end': datetime.datetime.fromisoformat(event['end']['dateTime'])
-                })
+                for event in all_events:
+                    summary = event.get('summary', '').strip().lower()
+                    if 'dateTime' not in event['start']:
+                        continue
 
-        busy_slots = []
-        for event in all_events:
-            if event.get('summary', '').strip().lower() != 'open for bookings' and 'dateTime' in event['start']:
-                busy_slots.append({
-                    'start': datetime.datetime.fromisoformat(event['start']['dateTime']),
-                    'end': datetime.datetime.fromisoformat(event['end']['dateTime'])
-                })
+                    start = datetime.datetime.fromisoformat(event['start']['dateTime'].replace('Z', '+00:00'))
+                    end = datetime.datetime.fromisoformat(event['end']['dateTime'].replace('Z', '+00:00'))
+
+                    if summary == 'open for bookings':
+                        open_windows.append({'start': start, 'end': end})
+                    else:
+                        busy_slots.append({'start': start, 'end': end})
+            except Exception as e:
+                print(f"ERROR: get_availability: Failed to scan {calendar_id}: {e}")
 
         valid_start_times = []
         time_slot_interval = timedelta(minutes=15)
         now = datetime.datetime.now(timezone.utc)
 
+        # Calculate availability based on the MERGED data from all calendars
         for window in open_windows:
             potential_start = window['start']
             while potential_start < window['end']:
                 potential_end = potential_start + timedelta(minutes=total_block_duration)
-
                 if potential_end > window['end']:
                     break
-
                 # Skip times that have already passed if booking for today
                 if potential_start <= now:
                     potential_start += time_slot_interval
@@ -525,21 +553,25 @@ def book_appointment():
     # --- Overlap Prevention Logic ---
     check_start = start_time - timedelta(hours=1)
     check_end = end_time + timedelta(hours=1)
+    
+    all_busy_events = []
+    for calendar_id in CALENDAR_IDS:
+        try:
+            events_result = service.events().list(
+                calendarId=calendar_id,
+                timeMin=check_start.isoformat(),
+                timeMax=check_end.isoformat(),
+                singleEvents=True
+            ).execute()
+            all_busy_events.extend([
+                e for e in events_result.get('items', []) 
+                if e.get('summary', '').lower() != 'open for bookings' and 'dateTime' in e['start']
+            ])
+        except Exception as e:
+            print(f"ERROR: /api/book: Failed overlap check for {calendar_id}: {e}")
+
     try:
-        events_result = service.events().list(
-            calendarId=CALENDAR_ID,
-            timeMin=check_start.isoformat(),
-            timeMax=check_end.isoformat(),
-            singleEvents=True
-        ).execute()
-        all_events = events_result.get('items', [])
-
-        busy_slots = [
-            event for event in all_events
-            if event.get('summary', '').lower() != 'open for bookings' and 'dateTime' in event['start']
-        ]
-
-        for busy_event in busy_slots:
+        for busy_event in all_busy_events:
             busy_start = datetime.datetime.fromisoformat(busy_event['start']['dateTime'])
             busy_end = datetime.datetime.fromisoformat(busy_event['end']['dateTime'])
             if start_time < busy_end and end_time > busy_start:
@@ -555,7 +587,7 @@ def book_appointment():
     full_description = f"{description}\n\n{meta_desc}"
 
     # Pass the determined color ID to the create_event function
-    created_event = create_event(service, summary, start_time, end_time, full_description, CALENDAR_ID, color_id=event_color_id)
+    created_event = create_event(service, summary, start_time, end_time, full_description, PRIMARY_CALENDAR_ID, color_id=event_color_id)
 
     if not created_event:
         return jsonify({"error": "Failed to create calendar event."}), 500
@@ -595,7 +627,7 @@ def book_appointment():
     # Using HTML <a> tags to display user-friendly text instead of raw URLs
     try:
         updated_desc = f"{description}\n\n--- ADMIN: SOAP NOTE LINK ---\n<a href=\"{soap_url}\">SOAP Form</a>"
-        service.events().patch(calendarId=CALENDAR_ID, eventId=calendar_event_id, body={'description': updated_desc}).execute()
+        service.events().patch(calendarId=PRIMARY_CALENDAR_ID, eventId=calendar_event_id, body={'description': updated_desc}).execute()
     except Exception as e:
         print(f"ERROR: Failed to update calendar event with links: {e}")
 
@@ -684,9 +716,9 @@ def book_appointment():
             admin_notes = f"\n\n--- ADMIN: SQUARE INFO ---\nCustomer Profile: <a href=\"{customer_link}\">Square Card Link</a>"
             try:
                 # Fetch the latest description to ensure we append to the most recent version (including SOAP link)
-                current_event = service.events().get(calendarId=CALENDAR_ID, eventId=calendar_event_id).execute()
+                current_event = service.events().get(calendarId=PRIMARY_CALENDAR_ID, eventId=calendar_event_id).execute()
                 latest_desc = current_event.get('description', '')
-                service.events().patch(calendarId=CALENDAR_ID, eventId=calendar_event_id, body={'description': latest_desc + admin_notes}).execute()
+                service.events().patch(calendarId=PRIMARY_CALENDAR_ID, eventId=calendar_event_id, body={'description': latest_desc + admin_notes}).execute()
             except Exception as e:
                 print(f"ERROR: Failed to update calendar event with Square IDs: {e}")
 
@@ -911,19 +943,20 @@ def trigger_reminders():
         return jsonify({"error": "Google Calendar service unavailable"}), 500
 
     try:
-        events_result = service.events().list(
-            calendarId=CALENDAR_ID,
-            timeMin=time_min.isoformat(),
-            timeMax=time_max.isoformat(),
-            singleEvents=True,
-            orderBy='startTime'
-        ).execute()
-        events = events_result.get('items', [])
+        all_remind_events = []
+        for calendar_id in CALENDAR_IDS:
+            res = service.events().list(
+                calendarId=calendar_id,
+                timeMin=time_min.isoformat(),
+                timeMax=time_max.isoformat(),
+                singleEvents=True,
+                orderBy='startTime'
+            ).execute()
+            all_remind_events.extend(res.get('items', []))
 
         sent_count = 0
         local_tz = ZoneInfo(LOCAL_TIMEZONE)
-
-        for event in events:
+        for event in all_remind_events:
             summary = event.get('summary', '')
             if summary.lower().strip() == 'open for bookings':
                 continue
@@ -952,8 +985,8 @@ def trigger_reminders():
 
             start_dt = datetime.datetime.fromisoformat(event['start']['dateTime'].replace('Z', '+00:00'))
             local_start = start_dt.astimezone(local_tz)
-            
-            client_name = summary.split("for")[-1].strip() if "for" in summary else "Valued Client" 
+
+            client_name = summary.split("for")[-1].strip() if "for" in summary else "Valued Client"
             formatted_date = local_start.strftime('%B %d')
             formatted_time = local_start.strftime('%I:%M %p')
 
@@ -975,8 +1008,9 @@ def trigger_reminders():
                     else:
                         updated_desc = desc
 
+                    # Note: We patch the event in whichever calendar it was found in
                     service.events().patch(
-                        calendarId=CALENDAR_ID,
+                        calendarId=event.get('organizer', {}).get('email', PRIMARY_CALENDAR_ID),
                         eventId=event['id'],
                         body={'description': updated_desc}
                     ).execute()
@@ -984,7 +1018,7 @@ def trigger_reminders():
                     print(f"ERROR: Failed to patch event {event['id']} with idempotency tag: {patch_e}")
             else:
                 print(f"WARNING: Failed to send reminder for {summary}")
-        
+
         return jsonify({"status": "success", "reminders_sent": sent_count})
     except Exception as e:
         print(f"CRON ERROR: {e}")
@@ -1072,13 +1106,13 @@ def _handle_intake_submission_background(data, pdf_output):
             calendar_service = get_calendar_service()
             if calendar_service:
                 # Fetch current description to append, ensuring we don't wipe out SOAP or Square info
-                event = calendar_service.events().get(calendarId=CALENDAR_ID, eventId=calendar_event_id).execute()
+                event = calendar_service.events().get(calendarId=PRIMARY_CALENDAR_ID, eventId=calendar_event_id).execute()
                 latest_desc = event.get('description', '')
 
                 intake_note = f"\n\n--- ADMIN: INTAKE FORM LINK ---\n<a href=\"{drive_link}\">Intake Form</a>"
 
                 calendar_service.events().patch(
-                    calendarId=CALENDAR_ID,
+                    calendarId=PRIMARY_CALENDAR_ID,
                     eventId=calendar_event_id,
                     body={'description': latest_desc + intake_note}
                 ).execute()
