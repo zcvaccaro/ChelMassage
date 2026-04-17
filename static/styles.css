@@ -17,6 +17,10 @@ body {
   line-height: 1.6;
   color: var(--primary-text-color);
   background-color: #fff;
+  width: 100vw;
+  overflow-x: hidden; /* Prevents horizontal scroll gaps on mobile */
+  margin: 0;
+  padding: 0;
 }
 
 h1, h2, h3 {
@@ -128,7 +132,7 @@ header {
   align-items: center;
   max-width: none; /* Allow header to span full width */
   width: 100%;
-  padding: 0 2rem;;
+  padding: 0 2rem;
 }
 
 .logo {
@@ -237,13 +241,14 @@ header {
 /* --- Hero Section --- */
 .hero {
   position: relative;
-  height: calc(100vh - 101px); /* Subtract the header's height to fit perfectly */
+  min-height: calc(100vh - 130px); /* Adjusted for larger logo height */
   display: flex;
   align-items: center;
   justify-content: center;
   text-align: center;
   color: #fff;
   padding: 0;
+  z-index: 1; /* Creates a stacking context so negative z-index children stay above body */
 }
 
 .hero img {
@@ -463,6 +468,18 @@ footer {
     display: none; /* Hide nav links by default */
   }
 
+  .header-inner {
+    padding: 0 1rem; /* Reduce padding on mobile to prevent content from pushing past the screen edge */
+  }
+
+  .logo {
+    font-size: 1.8rem;
+  }
+  .logo small {
+    font-size: 0.95rem;
+    letter-spacing: 0.26rem;
+  }
+
   .about, #about-me {
     flex-direction: column;
     text-align: center;
@@ -471,15 +488,6 @@ footer {
   /* Reverse direction for the first about section */
   .about {
     flex-direction: column-reverse;
-  }
-
-  /* Fix header text size on mobile */
-  .logo {
-    font-size: 1.5rem;
-    max-width: 60%;
-  }
-  .logo small {
-    font-size: 0.9rem;
   }
 
   /* Fix about images stretching on mobile */
@@ -943,6 +951,14 @@ input.datepicker {
 
   .card h3 {
     font-size: 1.1rem; /* Slightly smaller headers to prevent wrapping issues */
+  }
+
+  .logo {
+    font-size: 1.4rem;
+  }
+  .logo small {
+    font-size: 0.75rem;
+    letter-spacing: 0.2rem;
   }
 
   /* Stack standard rows on mobile to prevent overlapping and alignment issues */
