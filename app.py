@@ -232,6 +232,16 @@ def favicon():
         mimetype='image/svg+xml'
     )
 
+@app.route('/sitemap.xml')
+def sitemap():
+    """Serves the sitemap.xml from the static folder."""
+    return send_from_directory(app.static_folder, 'sitemap.xml')
+
+@app.route('/robots.txt')
+def robots():
+    """Serves the robots.txt from the static folder."""
+    return send_from_directory(app.static_folder, 'robots.txt')
+
 @app.route('/')
 def home():
     """Serves the main homepage."""
