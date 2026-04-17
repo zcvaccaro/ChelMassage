@@ -986,15 +986,18 @@ def trigger_reminders():
             start_dt = datetime.datetime.fromisoformat(event['start']['dateTime'].replace('Z', '+00:00'))
             local_start = start_dt.astimezone(local_tz)
 
-            client_name = summary.split("for")[-1].strip() if "for" in summary else "Valued Client"
+            client_full_name = summary.split("for")[-1].strip() if "for" in summary else "Valued Client"
+            first_name = client_full_name.split(' ')[0]
+
+            formatted_day = local_start.strftime('%A')
             formatted_date = local_start.strftime('%B %d')
             formatted_time = local_start.strftime('%I:%M %p')
 
-            # Format the message exactly as requested
             msg_body = (
-                f"Hi {client_name}, you have a {duration} {service_type} appointment "
-                f"tomorrow {formatted_date} at {formatted_time}. I look forward to seeing you!\n\n"
-                "Chelsea Vaccaro\nReply C to confirm or call to reschedule."
+                f"Hi {first_name} this is a reminder that you have a {duration} {service_type} appointment "
+                f"on {formatted_day} {formatted_date} at {formatted_time} at Chelsea Vaccaro Therapeutic Massage. "
+                "If you need to make changes to this appointment please call or text (845) 694-9510. "
+                "I look forward to seeing you!"
             )
 
             if _send_twilio_sms(phone, msg_body):
