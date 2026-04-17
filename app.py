@@ -619,7 +619,9 @@ def book_appointment():
         'email': client_email,
         'phone': client_info.get('phone'),
         'comments': data.get('description', '').replace('Comments: ', ''),
-        'calendarId': calendar_event_id
+        'calendarId': calendar_event_id,
+        'dob': client_info.get('dob', ''),
+        'address': client_info.get('address', '')
     }
     intake_url = url_for('intake_page', _external=True) + '?' + urlencode(intake_params)
 

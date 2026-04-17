@@ -226,6 +226,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     last_name: formData.get('lastName'),
                     email: formData.get('email'),
                     phone: formData.get('phone'),
+                    dob: urlParams.get('dob') || '',
+                    address: urlParams.get('address') || ''
                 },
                 start_time: startTime.toISOString(),
                 service_duration: parseInt(lengthSelect.value),
