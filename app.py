@@ -1511,6 +1511,6 @@ def _handle_onsite_request_background(data):
 if __name__ == '__main__':
     # For deployment, Render sets the PORT environment variable.
     # We default to 5000 for local development.
-    port = int(os.environ.get('PORT', '5000'))
+    port = int(os.environ.get('PORT', '10000'))
     # Bind to '0.0.0.0' to be accessible in a containerized environment.
     app.run(host='0.0.0.0', port=port, debug=False)

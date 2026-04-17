@@ -141,6 +141,7 @@ header {
   display: flex; /* Use flexbox to align logo and text */
   align-items: center; /* Vertically center items */
   gap: 0.5rem; /* Space between logo and text */
+  white-space: nowrap; /* Prevent logo text from stacking */
 }
 
 .logo-text {
@@ -167,6 +168,7 @@ header {
   align-items: center;
   vertical-align: middle;
   margin-left: 1.2rem;
+  white-space: nowrap; /* Prevent buttons from stacking */
 }
 
 .nav-cta-group .cta {
@@ -379,7 +381,7 @@ header {
 .close-card-btn { font-size: 0.8rem; padding: 6px 12px; }
 
 /* Mobile Nav Active State */
-@media (max-width: 950px) {
+@media (max-width: 1150px) {
   #navMenu.is-active {
     display: flex;
     flex-direction: column;
@@ -448,7 +450,7 @@ footer {
 }
 
 /* --- Responsive Styles --- */
-@media (max-width: 950px) {
+@media (max-width: 1150px) {
   h2 {
     font-size: 2rem;
   }
