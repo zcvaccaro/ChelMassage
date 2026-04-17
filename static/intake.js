@@ -179,35 +179,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
         intakeForm.addEventListener('submit', async (e) => {
             const submitButton = intakeForm.querySelector('button[type="submit"]');
-
-            // Check both native and custom validation
             const agreeTermsCheckbox = document.getElementById('agreeTerms');
-            const termsChecked = agreeTermsCheckbox.checked;
-            
-            if (!intakeForm.checkValidity() || !termsChecked) {
-                e.preventDefault(); 
-                
-                if (!termsChecked) {
-                    document.querySelector('.agreement-text').style.color = 'var(--accent-color-dark)';
-                    document.getElementById('agree-error-message').style.display = 'block';
-                }
 
-                const firstInvalid = intakeForm.querySelector(':invalid') || (!termsChecked ? agreeTermsCheckbox : null);
-                
+            // 1. Handle Custom Checkbox Validation
+            if (!agreeTermsCheckbox.checked) {
+                agreeTermsCheckbox.setCustomValidity("You must agree to the terms to continue.");
+                document.querySelector('.agreement-text').style.color = 'var(--accent-color-dark)';
+                document.getElementById('agree-error-message').style.display = 'block';
+            } else {
+                agreeTermsCheckbox.setCustomValidity("");
+            }
+
+            // 2. Manual validation check for the scroll offset (matching booking.js)
+            if (!intakeForm.checkValidity()) {
+                e.preventDefault();
+                // Find the first invalid element and its visible container
+                const firstInvalid = intakeForm.querySelector(':invalid');
                 if (firstInvalid) {
-                    const headerOffset = 150; // Offset to clear the sticky header
-                    const elementPosition = firstInvalid.getBoundingClientRect().top + window.scrollY;
-                    
+                    const scrollTarget = firstInvalid.closest('.form-group, .agreement-group') || firstInvalid;
+                    const headerOffset = 180;
+                    const elementPosition = scrollTarget.getBoundingClientRect().top + window.scrollY;
+
                     window.scrollTo({
                         top: elementPosition - headerOffset,
                         behavior: 'smooth'
                     });
 
-                    // Delay native reporting to allow smooth scroll to finish and prevent header overlap
                     setTimeout(() => {
                         firstInvalid.focus({ preventScroll: true });
                         intakeForm.reportValidity();
-                    }, 400);
+                    }, 450);
                 }
                 return;
             }

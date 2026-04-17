@@ -80,7 +80,7 @@ document.addEventListener('DOMContentLoaded', () => {
             e.preventDefault();
             const form = e.target;
             const submitBtn = form.querySelector('button[type="submit"]');
-            
+
             if (!submitBtn) return;
 
             submitBtn.classList.add('loading');

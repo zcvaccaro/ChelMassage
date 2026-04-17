@@ -4,6 +4,19 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Reserve an Appointment | Massage Therapy</title>
+  <meta name="description" content="Book your therapeutic massage appointment with Chelsea Vaccaro in New Paltz, NY. Choose from Deep Tissue, Swedish, Prenatal, and more.">
+
+  <!-- Open Graph / Social Media -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://www.chelseavaccaro.com/Booking.html">
+  <meta property="og:title" content="Reserve an Appointment | Chelsea Vaccaro">
+  <meta property="og:description" content="Schedule your next massage session online. Expert care in New Paltz, NY.">
+  <meta property="og:image" content="{{ url_for('static', filename='Images/GoldOnBlackLogo.png', _external=True) }}">
+
+  <!-- Twitter -->
+  <meta property="twitter:card" content="summary_large_image">
+  <meta property="twitter:image" content="{{ url_for('static', filename='Images/GoldOnBlackLogo.png', _external=True) }}">
+
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='Images/LOGO.svg') }}">

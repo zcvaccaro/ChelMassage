@@ -242,7 +242,7 @@ document.addEventListener("DOMContentLoaded", () => {
         // Special case for the "About" link to scroll below the services
         const servicesSection = document.getElementById('services');
         if (servicesSection) {
-          const headerOffset = 101; // Height of your sticky header
+          const headerOffset = 180; // Standardized height of sticky header + label clearance
           // Calculate position at the bottom of the services section
           const padding = 30; // Extra space to stop "a little higher"
           const elementPosition = servicesSection.getBoundingClientRect().bottom + window.pageYOffset;
@@ -251,7 +251,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       } else if (targetElement) {
         // Calculate the position of the target element, accounting for the sticky header
-        const headerOffset = 101; // Height of your sticky header
+        const headerOffset = 180; // Standardized height of sticky header + label clearance
         const elementPosition = targetElement.getBoundingClientRect().top + window.pageYOffset;
         const offsetPosition = elementPosition - headerOffset;
         window.scrollTo({ top: offsetPosition, behavior: 'smooth' });
@@ -263,4 +263,28 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
   });
+
+  // --- Global Form Validation Scroll Fix ---
+  // Intercepts native browser "jumps" to invalid fields and adds an offset for the sticky header
+  document.addEventListener('invalid', (e) => {
+    e.preventDefault(); // Stop the browser from jumping instantly to the field
+
+    if (!e.target.form) return;
+
+    const firstInvalid = e.target.form.querySelector(':invalid');
+    if (firstInvalid && e.target === firstInvalid) {
+      // Find the first invalid element and its visible container
+      const scrollTarget = firstInvalid.closest('.form-group, .agreement-group') || firstInvalid;
+      const headerOffset = 180;
+      const elementPosition = scrollTarget.getBoundingClientRect().top + window.scrollY;
+
+      window.scrollTo({
+        top: elementPosition - headerOffset,
+        behavior: 'smooth'
+      });
+
+      // Focus the element after scrolling so the validation bubble appears in the right spot
+      setTimeout(() => firstInvalid.focus({ preventScroll: true }), 450);
+    }
+  }, true); // Use capture phase to catch event before browser default
 });

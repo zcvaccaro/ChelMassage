@@ -5,6 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Client Intake Form | Chelsea Vaccaro Therapeutic Massage</title>
   <meta name="description" content="Secure client intake form for Chelsea Vaccaro Therapeutic Massage in New Paltz, NY.">
+
+  <!-- Open Graph / Social Media -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Client Intake Form | Chelsea Vaccaro">
+  <meta property="og:description" content="Please complete this secure intake form before your appointment.">
+  <meta property="og:image" content="{{ url_for('static', filename='Images/GoldOnBlackLogo.png', _external=True) }}">
+  <meta property="twitter:card" content="summary">
+
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='Images/LOGO.svg') }}">
 </head>
@@ -39,21 +47,21 @@
           <div class="form-row">
             <div class="form-group">
               <label for="firstName">First Name</label>
-              <input type="text" id="firstName" name="firstName">
+              <input type="text" id="firstName" name="firstName" required>
             </div>
             <div class="form-group">
               <label for="lastName">Last Name</label>
-              <input type="text" id="lastName" name="lastName">
+              <input type="text" id="lastName" name="lastName" required>
             </div>
           </div>
           <div class="form-row">
             <div class="form-group">
               <label for="email">Email Address</label>
-              <input type="email" id="email" name="email">
+              <input type="email" id="email" name="email" required>
             </div>
             <div class="form-group">
               <label for="phone">Phone Number</label>
-              <input type="tel" id="phone" name="phone">
+              <input type="tel" id="phone" name="phone" required>
             </div>
           </div>
           <div class="form-group">
@@ -76,11 +84,11 @@
           </div>
           <div class="form-group">
             <label for="conditions">Do you have any medical conditions we should be aware of?</label>
-            <textarea id="conditions" name="conditions" rows="3"></textarea>
+            <textarea id="conditions" name="conditions" rows="3" required></textarea>
           </div>
           <div class="form-group">
             <label for="allergies">Please list any allergies (medications, oils, scents, etc.)</label>
-            <textarea id="allergies" name="allergies" rows="3"></textarea>
+            <textarea id="allergies" name="allergies" rows="3" required></textarea>
           </div>
         </fieldset>
 
@@ -128,7 +136,7 @@
               session given should be construed as such.</p>
           </div>
           <div class="form-group agreement-group">
-            <input type="checkbox" id="agreeTerms" name="agreeTerms">
+            <input type="checkbox" id="agreeTerms" name="agreeTerms" required>
             <span class="agreement-text"><strong> I have read and agree to the Cancellation Policy and Terms & Conditions.</strong></span>
             <label for="agreeTerms" class="checkbox-label"></label>
             <small id="agree-error-message" class="error-message" style="display: none;">You must agree to the terms to continue.</small>

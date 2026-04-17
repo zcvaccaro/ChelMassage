@@ -4,6 +4,19 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Request On-Site Treatment | Chelsea Vaccaro Therapeutic Massage</title>
+  <meta name="description" content="Request a professional massage in the comfort of your own home. Serving New Paltz and surrounding areas.">
+
+  <!-- Open Graph / Social Media -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://www.chelseavaccaro.com/OnSiteRequest.html">
+  <meta property="og:title" content="Request an On-Site Treatment | Chelsea Vaccaro">
+  <meta property="og:description" content="Bring the spa to you. Request a home visit for professional massage therapy.">
+  <meta property="og:image" content="{{ url_for('static', filename='Images/GoldOnBlackLogo.png', _external=True) }}">
+
+  <!-- Twitter -->
+  <meta property="twitter:card" content="summary_large_image">
+  <meta property="twitter:image" content="{{ url_for('static', filename='Images/GoldOnBlackLogo.png', _external=True) }}">
+
   <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
   <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='Images/LOGO.svg') }}">
@@ -21,7 +34,6 @@
         <a href="{{ url_for('home') }}#services">Services</a>
         <a href="{{ url_for('home') }}#about">About</a>
         <a href="{{ url_for('home') }}#contact">Contact</a>
-        <a href="{{ url_for('booking_page') }}" class="cta">Reserve Now</a>
       </nav>
       <button class="nav-toggle" id="navToggle">☰</button>
     </div>

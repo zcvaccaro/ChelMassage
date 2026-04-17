@@ -184,7 +184,29 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- 2. Handle Form Submission ---
 
     bookingForm.addEventListener('submit', async (e) => {
-        e.preventDefault(); // Prevent the browser from reloading
+        // 0. Manual validation check to handle the sticky header offset
+        if (!bookingForm.checkValidity()) {
+            e.preventDefault();
+            const firstInvalid = bookingForm.querySelector(':invalid');
+            if (firstInvalid) {
+                const scrollTarget = firstInvalid.closest('.form-group') || firstInvalid;
+                const headerOffset = 180;
+                const elementPosition = scrollTarget.getBoundingClientRect().top + window.scrollY;
+
+                window.scrollTo({
+                    top: elementPosition - headerOffset,
+                    behavior: 'smooth'
+                });
+
+                setTimeout(() => {
+                    firstInvalid.focus({ preventScroll: true });
+                    bookingForm.reportValidity();
+                }, 450);
+            }
+            return;
+        }
+
+        e.preventDefault();
 
         const submitButton = bookingForm.querySelector('button[type="submit"]');
         submitButton.classList.add('loading');
