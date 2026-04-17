@@ -177,39 +177,48 @@ document.addEventListener('DOMContentLoaded', () => {
         const intakeForm = document.querySelector('.intake-form');
         if (!intakeForm) return;
 
+        let isInternalValidation = false;
+        intakeForm.addEventListener('invalid', (e) => {
+            if (isInternalValidation) return;
+            
+            const firstInvalid = intakeForm.querySelector(':invalid');
+            if (firstInvalid && e.target === firstInvalid) {
+                e.preventDefault();
+                
+                const scrollTarget = firstInvalid.closest('.form-group, .agreement-group, fieldset') || firstInvalid;
+                const headerOffset = 300;
+                const elementPosition = scrollTarget.getBoundingClientRect().top + window.scrollY;
+
+                window.scrollTo({
+                    top: elementPosition - headerOffset,
+                    behavior: 'smooth'
+                });
+
+                setTimeout(() => {
+                    isInternalValidation = true;
+                    firstInvalid.reportValidity();
+                    isInternalValidation = false;
+                    firstInvalid.focus({ preventScroll: true });
+                }, 450);
+            }
+        }, true);
+
         intakeForm.addEventListener('submit', async (e) => {
             const submitButton = intakeForm.querySelector('button[type="submit"]');
             const agreeTermsCheckbox = document.getElementById('agreeTerms');
 
             // 1. Handle Custom Checkbox Validation
             if (!agreeTermsCheckbox.checked) {
-                agreeTermsCheckbox.setCustomValidity("You must agree to the terms to continue.");
+                agreeTermsCheckbox.setCustomValidity("Please agree to the terms and conditions to continue.");
                 document.querySelector('.agreement-text').style.color = 'var(--accent-color-dark)';
                 document.getElementById('agree-error-message').style.display = 'block';
             } else {
                 agreeTermsCheckbox.setCustomValidity("");
             }
 
-            // 2. Manual validation check for the scroll offset (matching booking.js)
+            // 2. Validation check - triggering the global scroll + bubble logic in main.js
             if (!intakeForm.checkValidity()) {
                 e.preventDefault();
-                // Find the first invalid element and its visible container
-                const firstInvalid = intakeForm.querySelector(':invalid');
-                if (firstInvalid) {
-                    const scrollTarget = firstInvalid.closest('.form-group, .agreement-group') || firstInvalid;
-                    const headerOffset = 180;
-                    const elementPosition = scrollTarget.getBoundingClientRect().top + window.scrollY;
-
-                    window.scrollTo({
-                        top: elementPosition - headerOffset,
-                        behavior: 'smooth'
-                    });
-
-                    setTimeout(() => {
-                        firstInvalid.focus({ preventScroll: true });
-                        intakeForm.reportValidity();
-                    }, 450);
-                }
                 return;
             }
 

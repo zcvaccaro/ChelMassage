@@ -183,26 +183,43 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- 2. Handle Form Submission ---
 
+    let isInternalValidation = false;
+    bookingForm.addEventListener('invalid', (e) => {
+        if (isInternalValidation) return;
+        
+        const firstInvalid = bookingForm.querySelector(':invalid');
+        if (firstInvalid && e.target === firstInvalid) {
+            e.preventDefault(); // Stop the browser from jumping instantly
+            
+            // Find the container (label + input) to ensure both are visible
+            const scrollTarget = firstInvalid.closest('.form-group, .agreement-group, fieldset') || firstInvalid;
+            const headerOffset = 300; // Increased offset to clear navbar + label
+            const elementPosition = scrollTarget.getBoundingClientRect().top + window.scrollY;
+
+            window.scrollTo({
+                top: elementPosition - headerOffset,
+                behavior: 'smooth'
+            });
+
+            setTimeout(() => {
+                isInternalValidation = true;
+                firstInvalid.reportValidity(); // Show browser validation bubble
+                isInternalValidation = false;
+                firstInvalid.focus({ preventScroll: true });
+            }, 450);
+        }
+    }, true);
+
     bookingForm.addEventListener('submit', async (e) => {
-        // 0. Manual validation check to handle the sticky header offset
+        // Handle custom validation for the authorization checkbox
+        if (authChargeCheckbox && !authChargeCheckbox.disabled && !authChargeCheckbox.checked) {
+            authChargeCheckbox.setCustomValidity("Please authorize the card hold to continue.");
+        } else if (authChargeCheckbox) {
+            authChargeCheckbox.setCustomValidity("");
+        }
+
         if (!bookingForm.checkValidity()) {
             e.preventDefault();
-            const firstInvalid = bookingForm.querySelector(':invalid');
-            if (firstInvalid) {
-                const scrollTarget = firstInvalid.closest('.form-group') || firstInvalid;
-                const headerOffset = 180;
-                const elementPosition = scrollTarget.getBoundingClientRect().top + window.scrollY;
-
-                window.scrollTo({
-                    top: elementPosition - headerOffset,
-                    behavior: 'smooth'
-                });
-
-                setTimeout(() => {
-                    firstInvalid.focus({ preventScroll: true });
-                    bookingForm.reportValidity();
-                }, 450);
-            }
             return;
         }
 

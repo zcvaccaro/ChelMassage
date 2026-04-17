@@ -76,8 +76,40 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- 4. Form Submission Logic ---
     const onsiteForm = document.querySelector('.reservation-form');
     if (onsiteForm) {
+        let isInternalValidation = false;
+        onsiteForm.addEventListener('invalid', (e) => {
+            if (isInternalValidation) return;
+            
+            const firstInvalid = onsiteForm.querySelector(':invalid');
+            if (firstInvalid && e.target === firstInvalid) {
+                e.preventDefault();
+                
+                const scrollTarget = firstInvalid.closest('.form-group, .agreement-group, fieldset') || firstInvalid;
+                const headerOffset = 300;
+                const elementPosition = scrollTarget.getBoundingClientRect().top + window.scrollY;
+
+                window.scrollTo({
+                    top: elementPosition - headerOffset,
+                    behavior: 'smooth'
+                });
+
+                setTimeout(() => {
+                    isInternalValidation = true;
+                    firstInvalid.reportValidity();
+                    isInternalValidation = false;
+                    firstInvalid.focus({ preventScroll: true });
+                }, 450);
+            }
+        }, true);
+
         onsiteForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
+            // Trigger native validation scroll/bubbles before custom submission
+            if (!onsiteForm.checkValidity()) {
+                e.preventDefault();
+                return;
+            }
+
+            e.preventDefault(); // Valid form, proceed with custom submission
             const form = e.target;
             const submitBtn = form.querySelector('button[type="submit"]');
 
