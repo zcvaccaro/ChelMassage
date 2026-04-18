@@ -83,6 +83,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Save the current state for undo
     const saveState = () => {
       history.push(canvas.toDataURL());
+      if (history.length > 20) history.shift(); // Prevent memory leak by limiting history size
     };
 
     // Undo the last drawing action
@@ -177,29 +178,32 @@ document.addEventListener('DOMContentLoaded', () => {
         const intakeForm = document.querySelector('.intake-form');
         if (!intakeForm) return;
 
+        const scrollToField = (el, offset = 180) => {
+            const y = el.getBoundingClientRect().top + window.pageYOffset - offset;
+            window.scrollTo({
+                top: y,
+                behavior: 'smooth'
+            });
+        };
+
+
         let isInternalValidation = false;
         intakeForm.addEventListener('invalid', (e) => {
             if (isInternalValidation) return;
-            
+
             const firstInvalid = intakeForm.querySelector(':invalid');
             if (firstInvalid && e.target === firstInvalid) {
                 e.preventDefault();
-                
-                const scrollTarget = firstInvalid.closest('.form-group, .agreement-group, fieldset') || firstInvalid;
-                const headerOffset = 300;
-                const elementPosition = scrollTarget.getBoundingClientRect().top + window.scrollY;
 
-                window.scrollTo({
-                    top: elementPosition - headerOffset,
-                    behavior: 'smooth'
-                });
+                const scrollTarget = firstInvalid.closest('.form-group, .agreement-group, fieldset') || firstInvalid;
+                scrollToField(scrollTarget);
 
                 setTimeout(() => {
                     isInternalValidation = true;
                     firstInvalid.reportValidity();
                     isInternalValidation = false;
                     firstInvalid.focus({ preventScroll: true });
-                }, 450);
+                }, 300);
             }
         }, true);
 

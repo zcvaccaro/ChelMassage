@@ -5,13 +5,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const serviceSelect = document.getElementById('service');
     const lengthSelect = document.getElementById('length');
 
+    // --- 0. Global State & URL Parameters ---
+    const urlParams = new URLSearchParams(window.location.search);
+    const state = {
+        hasCardFromLookup: urlParams.get('hasCard') === 'true',
+        useSavedCard: false,
+        squareInitialized: false
+    };
+
     // --- Square Payment SDK Initialization ---
     const appId = window.SQUARE_APP_ID;
     const locationId = window.SQUARE_LOCATION_ID;
 
     let card;
-    let squareInitialized = false;
-    let useSavedCard = false; // New state variable to track user's choice
+    let fp; // Flatpickr instance
 
     // Initialize the Calendar immediately
     initializeDatePicker();
@@ -28,10 +35,8 @@ document.addEventListener('DOMContentLoaded', () => {
     prefillFromURL();
 
     // Initialize Square immediately after DOM content is parsed
-    const urlParams = new URLSearchParams(window.location.search);
-    const hasCardFromLookup = urlParams.get('hasCard') === 'true';
 
-    if (!hasCardFromLookup) { // Only initialize Square if no card is on file or user chooses new card
+    if (!state.hasCardFromLookup) { // Only initialize Square if no card is on file or user chooses new card
         if (window.location.protocol === 'file:') {
             alert("Square Payments will not work while opening the HTML file directly.");
         } else {
@@ -40,7 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function initializeSquare() {
-        if (squareInitialized) return;
+        if (state.squareInitialized) return;
 
         if (!window.Square) {
             // Retry once if the script tag hasn't finished loading
@@ -64,7 +69,7 @@ document.addEventListener('DOMContentLoaded', () => {
             card = await payments.card();
             await card.attach('#card-container');
 
-            squareInitialized = true;
+            state.squareInitialized = true;
             console.log("✅ Square Card attached successfully");
 
         } catch (e) {
@@ -117,9 +122,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- 1. Fetch and Display Availability ---
 
-    const fetchAndDisplayAvailability = async () => {
+    let availabilityTimeout;
+    const fetchAndDisplayAvailability = () => {
+        clearTimeout(availabilityTimeout);
+        availabilityTimeout = setTimeout(async () => {
         // Guard against accessing flatpickr before it is initialized
-        const selectedDate = dateInput._flatpickr ? dateInput._flatpickr.selectedDates[0] : null;
+        const selectedDate = fp ? fp.selectedDates[0] : null;
         const duration = lengthSelect.value;
 
         // Differentiate placeholders based on what is missing
@@ -140,8 +148,12 @@ document.addEventListener('DOMContentLoaded', () => {
         timeSelect.disabled = true;
 
         try {
-            // Format the date to YYYY-MM-DD for the API
-            const dateStr = selectedDate.toISOString().split('T')[0];
+            // Format the date to YYYY-MM-DD manually to avoid UTC timezone shifts
+            const dateStr = [
+                selectedDate.getFullYear(),
+                (selectedDate.getMonth() + 1).toString().padStart(2, '0'),
+                selectedDate.getDate().toString().padStart(2, '0')
+            ].join('-');
             const response = await fetch(`/api/availability?date=${dateStr}&duration=${duration}`);
 
             if (!response.ok) {
@@ -156,6 +168,7 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('Error fetching availability:', error);
             timeSelect.innerHTML = '<option>Could not load times.</option>';
         }
+        }, 250); // Debounce fetch requests
     };
 
     const populateTimeSlots = (availableTimes) => {
@@ -183,6 +196,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- 2. Handle Form Submission ---
 
+    const scrollToField = (el, offset = 180) => {
+        const y = el.getBoundingClientRect().top + window.pageYOffset - offset;
+        window.scrollTo({
+            top: y,
+            behavior: 'smooth'
+        });
+    };
+
     let isInternalValidation = false;
     bookingForm.addEventListener('invalid', (e) => {
         if (isInternalValidation) return;
@@ -193,20 +214,14 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // Find the container (label + input) to ensure both are visible
             const scrollTarget = firstInvalid.closest('.form-group, .agreement-group, fieldset') || firstInvalid;
-            const headerOffset = 300; // Increased offset to clear navbar + label
-            const elementPosition = scrollTarget.getBoundingClientRect().top + window.scrollY;
-
-            window.scrollTo({
-                top: elementPosition - headerOffset,
-                behavior: 'smooth'
-            });
+            scrollToField(scrollTarget);
 
             setTimeout(() => {
                 isInternalValidation = true;
                 firstInvalid.reportValidity(); // Show browser validation bubble
                 isInternalValidation = false;
                 firstInvalid.focus({ preventScroll: true });
-            }, 450);
+            }, 300);
         }
     }, true);
 
@@ -234,11 +249,11 @@ document.addEventListener('DOMContentLoaded', () => {
             let useCardOnFile = false;
 
             // 1. Tokenize the card with Square
-            if (hasCardFromLookup && useSavedCard) {
+            if (state.hasCardFromLookup && state.useSavedCard) {
                 useCardOnFile = true; // Flag to use existing card on file
             } else {
-                if (!card) {
-                    alert("Payment form is still loading. Please wait a moment.");
+                if (!state.squareInitialized || !card) {
+                    alert("Payment system is still initializing. Please wait a moment.");
                     submitButton.classList.remove('loading');
                     submitButton.disabled = false;
                     return;
@@ -250,7 +265,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 sourceId = tokenResult.token; // Token for new card
             }
 
-            const selectedDate = dateInput._flatpickr.selectedDates[0];
+            const selectedDate = fp.selectedDates[0];
             const [hour, minute] = timeSelect.value.split(':');
             const startTime = new Date(selectedDate);
             startTime.setHours(parseInt(hour), parseInt(minute), 0, 0);
@@ -334,7 +349,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const authChargeCheckbox = document.getElementById('authCharge');
     const authChargeGroup = authChargeCheckbox ? authChargeCheckbox.closest('.agreement-group') : null;
 
-    if (hasCardFromLookup) {
+    if (state.hasCardFromLookup) {
         // Update message with last 4 digits from URL
         const last4 = urlParams.get('last4');
         if (last4) {
@@ -357,7 +372,7 @@ document.addEventListener('DOMContentLoaded', () => {
             authChargeCheckbox.required = false; // Prevent validation from blocking submit
             if (authChargeGroup) authChargeGroup.style.opacity = '0.6'; // Visually indicate disabled
         }
-        useSavedCard = true; // Default to using saved card
+        state.useSavedCard = true; // Default to using saved card
     } else {
         // If no card on file, ensure Square is initialized (already done above)
         if (cardContainer) cardContainer.style.display = 'block';
@@ -371,7 +386,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (useNewCardBtn) {
         useNewCardBtn.addEventListener('click', () => {
-            useSavedCard = false;
+            state.useSavedCard = false;
             if (savedCardOption) savedCardOption.style.display = 'none';
             if (cardContainer) cardContainer.closest('.form-group').style.display = 'block';
             if (cardNameInput) {
@@ -385,7 +400,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (authChargeGroup) authChargeGroup.style.opacity = '1';
             }
             // Ensure Square is initialized if it wasn't already (in case user came from hasCard=true path)
-            if (!squareInitialized) {
+            if (!state.squareInitialized) {
                 initializeSquare().catch(err => console.error("Square Init Error:", err));
             }
         });
@@ -394,7 +409,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- 3. Initialize Date Picker with Enabled Dates ---
     async function initializeDatePicker() {
         // Initialize flatpickr immediately so the grid appears on click
-        const fp = flatpickr("#date", {
+        fp = flatpickr("#date", {
             inline: false, // Desktop friendly: open on click, close on select
             disableMobile: true,
             minDate: "today",

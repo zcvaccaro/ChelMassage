@@ -76,6 +76,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- 4. Form Submission Logic ---
     const onsiteForm = document.querySelector('.reservation-form');
     if (onsiteForm) {
+        const scrollToField = (el, offset = 180) => {
+            const y = el.getBoundingClientRect().top + window.pageYOffset - offset;
+            window.scrollTo({
+                top: y,
+                behavior: 'smooth'
+            });
+        };
+
         let isInternalValidation = false;
         onsiteForm.addEventListener('invalid', (e) => {
             if (isInternalValidation) return;
@@ -85,20 +93,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 e.preventDefault();
                 
                 const scrollTarget = firstInvalid.closest('.form-group, .agreement-group, fieldset') || firstInvalid;
-                const headerOffset = 300;
-                const elementPosition = scrollTarget.getBoundingClientRect().top + window.scrollY;
-
-                window.scrollTo({
-                    top: elementPosition - headerOffset,
-                    behavior: 'smooth'
-                });
+                scrollToField(scrollTarget);
 
                 setTimeout(() => {
                     isInternalValidation = true;
                     firstInvalid.reportValidity();
                     isInternalValidation = false;
                     firstInvalid.focus({ preventScroll: true });
-                }, 450);
+                }, 300);
             }
         }, true);
 

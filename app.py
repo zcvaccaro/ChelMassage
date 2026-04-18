@@ -271,11 +271,11 @@ def intake_page():
                     spreadsheetId=SPREADSHEET_ID,
                     range="'Intake Forms'!I:I"
                 ).execute()
-                
+
                 rows = result.get('values', [])
                 # Flatten rows into a list of strings
                 existing_ids = [row[0] for row in rows if row]
-                
+
                 if calendar_id in existing_ids:
                     return redirect(url_for('intake_confirmation_page'))
         except Exception as e:
@@ -1008,6 +1008,7 @@ def trigger_reminders():
             msg_body = (
                 f"Hi {first_name} this is a reminder that you have a {duration} {service_type} appointment "
                 f"on {formatted_day} {formatted_date} at {formatted_time} at Chelsea Vaccaro Therapeutic Massage. "
+                "If you have not already, please complete the client intake form via the link in your confirmation email. "
                 "If you need to make changes to this appointment please call or text (845) 694-9510. "
                 "I look forward to seeing you!"
             )

@@ -1,6 +1,8 @@
-/* --- Global Styles & Resets --- */
-* {
-  /* Define CSS variables in the root for easy access */
+html {
+  scroll-padding-top: 180px;
+}
+
+:root {
   --primary-text-color: #333;
   --accent-color-dark: #d9534f; /* A bootstrap-like danger red */
   --brand-gold: #AB9C59;
@@ -17,7 +19,7 @@ body {
   line-height: 1.6;
   color: var(--primary-text-color);
   background-color: #fff;
-  width: 100vw;
+  width: 100%;
   overflow-x: hidden; /* Prevents horizontal scroll gaps on mobile */
   margin: 0;
   padding: 0;
@@ -558,10 +560,18 @@ body.card-open {
 }
 
 .form-group {
-  display: relative;
+  position: relative;
   z-index: 1;
   flex-direction: column;
+  scroll-margin-top: 180px; /* Modern offset for sticky header */
 }
+
+.agreement-group,
+fieldset,
+section {
+  scroll-margin-top: 180px;
+}
+
 
 .form-row {
   display: flex;

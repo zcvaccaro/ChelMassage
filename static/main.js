@@ -242,19 +242,11 @@ document.addEventListener("DOMContentLoaded", () => {
         // Special case for the "About" link to scroll below the services
         const servicesSection = document.getElementById('services');
         if (servicesSection) {
-          const headerOffset = 300; // Standardized height of sticky header + label clearance
-          // Calculate position at the bottom of the services section
-          const padding = 30; // Extra space to stop "a little higher"
-          const elementPosition = servicesSection.getBoundingClientRect().bottom + window.pageYOffset;
-          const offsetPosition = elementPosition - headerOffset - padding;
-          window.scrollTo({ top: offsetPosition, behavior: 'smooth' });
+          const elementPosition = servicesSection.getBoundingClientRect().bottom + window.scrollY;
+          window.scrollTo({ top: elementPosition - 180, behavior: 'smooth' });
         }
       } else if (targetElement) {
-        // Calculate the position of the target element, accounting for the sticky header
-        const headerOffset = 300; // Standardized height of sticky header + label clearance
-        const elementPosition = targetElement.getBoundingClientRect().top + window.pageYOffset;
-        const offsetPosition = elementPosition - headerOffset;
-        window.scrollTo({ top: offsetPosition, behavior: 'smooth' });
+        targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
 
       // Close the mobile menu after any link is clicked
