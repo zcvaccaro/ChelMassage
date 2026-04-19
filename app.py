@@ -226,11 +226,18 @@ def send_email(receiver_email, subject, body_html, attachment_data=None, attachm
 @app.before_request
 def log_request_info():
     """Logs every single incoming request to help debug reachability issues."""
-    # Enhanced logging to see exact headers and protocol
     protocol = request.headers.get('X-Forwarded-Proto', 'http')
-    host = request.headers.get('Host', 'unknown')
+    host = request.headers.get('Host', 'unknown-host').lower()
+
     app.logger.debug(f"ACCESS LOG | {protocol}://{host}{request.path} | IP: {request.remote_addr} | Agent: {request.user_agent}")
-    print(f"DEBUG ACCESS: {request.remote_addr} -> {request.path} ({request.user_agent})")
+    print(f"DEBUG ACCESS: {protocol}://{host}{request.path} | IP: {request.remote_addr} | Agent: {request.user_agent}")
+
+    # Canonical Redirect: Force www to non-www for consistency
+    if host.startswith('www.'):
+        new_host = host[4:]
+        # Construct the new URL maintaining protocol and path (rstrip handles empty query strings)
+        new_url = f"{protocol}://{new_host}{request.full_path.rstrip('?')}"
+        return redirect(new_url, code=301)
 
 @app.route('/favicon.ico')
 def favicon():
