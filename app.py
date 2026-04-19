@@ -223,6 +223,15 @@ def send_email(receiver_email, subject, body_html, attachment_data=None, attachm
 
 # --- Frontend Routes ---
 
+@app.before_request
+def log_request_info():
+    """Logs every single incoming request to help debug reachability issues."""
+    # Enhanced logging to see exact headers and protocol
+    protocol = request.headers.get('X-Forwarded-Proto', 'http')
+    host = request.headers.get('Host', 'unknown')
+    app.logger.debug(f"ACCESS LOG | {protocol}://{host}{request.path} | IP: {request.remote_addr} | Agent: {request.user_agent}")
+    print(f"DEBUG ACCESS: {request.remote_addr} -> {request.path} ({request.user_agent})")
+
 @app.route('/favicon.ico')
 def favicon():
     """Serves the LOGO.svg from the Images folder as the favicon."""
@@ -245,6 +254,8 @@ def robots():
 @app.route('/')
 def home():
     """Serves the main homepage."""
+    print(f"DEBUG: Incoming Home Request | IP: {request.remote_addr} | Agent: {request.user_agent}")
+    print(f"DEBUG: Headers: {dict(request.headers)}")
     return render_template('index.html')
 
 @app.route('/Booking.html')

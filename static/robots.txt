@@ -1,3 +1,4 @@
 User-agent: *
 Allow: /
-Sitemap: https://www.chelseavaccaro.com/sitemap.xml
+# Ensure the sitemap domain matches exactly how the site is accessed (www vs non-www)
+Sitemap: https://chelseavaccaromassage.com/sitemap.xml
