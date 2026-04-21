@@ -168,6 +168,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Remove the error styling once the user checks the box
         agreeTermsCheckbox.addEventListener('change', () => {
+            agreeTermsCheckbox.setCustomValidity("");
             agreeTermsText.style.color = ''; // Reset text color
             errorMessage.style.display = 'none'; // Hide the error message
         });
@@ -189,12 +190,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
         let isInternalValidation = false;
         intakeForm.addEventListener('invalid', (e) => {
+            // Ensure UI updates for the terms checkbox whenever it is invalid
+            if (e.target.id === 'agreeTerms') {
+                const agreeTermsText = document.querySelector('.agreement-text');
+                const errorMessage = document.getElementById('agree-error-message');
+                if (agreeTermsText) agreeTermsText.style.color = 'var(--accent-color-dark)';
+                if (errorMessage) errorMessage.style.display = 'block';
+            }
+
             if (isInternalValidation) return;
 
             const firstInvalid = intakeForm.querySelector(':invalid');
             if (firstInvalid && e.target === firstInvalid) {
                 e.preventDefault();
-
                 const scrollTarget = firstInvalid.closest('.form-group, .agreement-group, fieldset') || firstInvalid;
                 scrollToField(scrollTarget);
 
@@ -212,10 +220,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const agreeTermsCheckbox = document.getElementById('agreeTerms');
 
             // 1. Handle Custom Checkbox Validation
-            if (!agreeTermsCheckbox.checked) {
+            if (agreeTermsCheckbox && !agreeTermsCheckbox.checked) {
                 agreeTermsCheckbox.setCustomValidity("Please agree to the terms and conditions to continue.");
-                document.querySelector('.agreement-text').style.color = 'var(--accent-color-dark)';
-                document.getElementById('agree-error-message').style.display = 'block';
+                const agreeTermsText = document.querySelector('.agreement-text');
+                const errorMessage = document.getElementById('agree-error-message');
+                if (agreeTermsText) agreeTermsText.style.color = 'var(--accent-color-dark)';
+                if (errorMessage) errorMessage.style.display = 'block';
             } else {
                 agreeTermsCheckbox.setCustomValidity("");
             }

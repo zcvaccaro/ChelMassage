@@ -206,6 +206,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let isInternalValidation = false;
     bookingForm.addEventListener('invalid', (e) => {
+        // Ensure UI updates for the checkbox whenever it is invalid
+        if (e.target.id === 'authCharge') {
+            const authErrorMessage = document.getElementById('auth-error-message');
+            const agreementText = bookingForm.querySelector('.agreement-text');
+            if (agreementText) agreementText.style.color = 'var(--accent-color-dark)';
+            if (authErrorMessage) authErrorMessage.style.display = 'block';
+        }
+
         if (isInternalValidation) return;
         
         const firstInvalid = bookingForm.querySelector(':invalid');
@@ -227,10 +235,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     bookingForm.addEventListener('submit', async (e) => {
         // Handle custom validation for the authorization checkbox
+        const authErrorMessage = document.getElementById('auth-error-message');
+        const agreementText = bookingForm.querySelector('.agreement-text');
         if (authChargeCheckbox && !authChargeCheckbox.disabled && !authChargeCheckbox.checked) {
             authChargeCheckbox.setCustomValidity("Please authorize the card hold to continue.");
+            if (agreementText) agreementText.style.color = 'var(--accent-color-dark)';
+            if (authErrorMessage) authErrorMessage.style.display = 'block';
         } else if (authChargeCheckbox) {
             authChargeCheckbox.setCustomValidity("");
+            if (agreementText) agreementText.style.color = '';
+            if (authErrorMessage) authErrorMessage.style.display = 'none';
         }
 
         if (!bookingForm.checkValidity()) {
@@ -356,6 +370,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const cardNameInput = document.getElementById('cardName');
     const authChargeCheckbox = document.getElementById('authCharge');
     const authChargeGroup = authChargeCheckbox ? authChargeCheckbox.closest('.agreement-group') : null;
+
+    if (authChargeCheckbox) {
+        authChargeCheckbox.addEventListener('change', () => {
+            const authErrorMessage = document.getElementById('auth-error-message');
+            const agreementText = authChargeCheckbox.closest('.agreement-group').querySelector('.agreement-text');
+            authChargeCheckbox.setCustomValidity("");
+            if (agreementText) agreementText.style.color = '';
+            if (authErrorMessage) authErrorMessage.style.display = 'none';
+        });
+    }
 
     if (state.hasCardFromLookup) {
         // Update message with last 4 digits from URL

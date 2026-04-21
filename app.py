@@ -600,7 +600,7 @@ def book_appointment():
                         square_customer_id = row_val[6] if len(row_val) > 6 else ""
                         square_card_id = row_val[7] if len(row_val) > 7 else ""
                         break
-            
+
             if not square_card_id:
                 return jsonify({"error": "Could not find your saved card. Please enter your card details again."}), 400
 
