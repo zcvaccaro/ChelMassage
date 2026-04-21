@@ -265,6 +265,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 sourceId = tokenResult.token; // Token for new card
             }
 
+            // Final safety check before payload construction
+            if (!sourceId && !useCardOnFile) {
+                alert("Please ensure your credit card information is entered correctly.");
+                submitButton.classList.remove('loading');
+                submitButton.disabled = false;
+                return;
+            }
+
             const selectedDate = fp.selectedDates[0];
             const [hour, minute] = timeSelect.value.split(':');
             const startTime = new Date(selectedDate);

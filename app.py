@@ -571,9 +571,86 @@ def book_appointment():
     except (KeyError, TypeError, ValueError) as e:
         return jsonify({"error": f"Invalid or missing data in request: {e}"}), 400
 
+    # Ensure payment information is provided before creating the appointment
+    if not source_id and not use_card_on_file:
+        return jsonify({"error": "Credit card information is required to secure your booking."}), 400
+
     service = get_calendar_service()
     if not service:
         return jsonify({"error": "Could not connect to Google Calendar service."}), 500
+
+    # --- Foreground Square Verification ---
+    square_customer_id = ""
+    square_card_id = ""
+    client_email = client_info.get('email')
+
+    try:
+        if use_card_on_file and client_email:
+            # Retrieve existing customer and card IDs from Google Sheet
+            sheets_service = get_sheets_service()
+            if sheets_service:
+                normalized_email = client_email.strip().lower()
+                result = sheets_service.spreadsheets().values().get(
+                    spreadsheetId=SPREADSHEET_ID,
+                    range='Clients!A:H'
+                ).execute()
+                rows = result.get('values', [])
+                for row_val in rows:
+                    if row_val and len(row_val) > 2 and row_val[2].strip().lower() == normalized_email:
+                        square_customer_id = row_val[6] if len(row_val) > 6 else ""
+                        square_card_id = row_val[7] if len(row_val) > 7 else ""
+                        break
+            
+            if not square_card_id:
+                return jsonify({"error": "Could not find your saved card. Please enter your card details again."}), 400
+
+        elif source_id and client_email:
+            # 1. Search for existing customer
+            search_body = {
+                "query": { "filter": { "email_address": {"exact": client_email.strip().lower()} }},
+                "limit": 1
+            }
+            search_result = square_client.customers.search_customers(body=search_body)
+            if search_result.is_success() and search_result.body.get('customers'):
+                square_customer_id = search_result.body['customers'][0]['id']
+            else:
+                # Create New Customer
+                cust_body = {
+                    "given_name": client_info.get('first_name'),
+                    "family_name": client_info.get('last_name'),
+                    "email_address": client_email,
+                    "phone_number": client_info.get('phone'),
+                    "idempotency_key": str(uuid.uuid4())
+                }
+                cust_result = square_client.customers.create_customer(body=cust_body)
+                if cust_result.is_success():
+                    square_customer_id = cust_result.body['customer']['id']
+                else:
+                    return jsonify({"error": f"Failed to create Square profile: {cust_result.errors[0]['detail']}"}), 400
+
+            # 2. Create Card on File
+            if square_customer_id:
+                card_body = {
+                    "idempotency_key": str(uuid.uuid4()),
+                    "source_id": source_id,
+                    "card": {
+                        "customer_id": square_customer_id,
+                        "cardholder_name": f"{client_info.get('first_name')} {client_info.get('last_name')}"
+                    }
+                }
+                card_result = square_client.cards.create_card(body=card_body)
+                if card_result.is_success():
+                    square_card_id = card_result.body['card']['id']
+                else:
+                    return jsonify({"error": f"Card validation failed: {card_result.errors[0]['detail']}"}), 400
+        else:
+            return jsonify({"error": "Payment information is missing."}), 400
+
+    except Exception as sq_e:
+        print(f"ERROR: Square Verification Failed: {sq_e}")
+        return jsonify({"error": "Could not verify payment method. Please try again."}), 500
+
+    # If we reached here, Square is successful. Proceed with booking.
 
     # Determine event color based on service type
     event_color_id = SERVICE_COLOR_MAPPING.get(service_type)
@@ -664,82 +741,8 @@ def book_appointment():
     # --- Prepare Data for Emails ---
     client_first_name = client_info.get('first_name', 'Valued Client')
 
-    # --- Define Async Email Task ---
-    def _handle_booking_background():
-        square_customer_id = ""
-        square_card_id = ""
-
-        # 0. Create Square Customer and Card on File (if source_id is present)
-        if use_card_on_file and client_email:
-            # Retrieve existing customer and card IDs from Google Sheet
-            sheets_service = get_sheets_service()
-            if sheets_service:
-                normalized_email = client_email.strip().lower()
-                try:
-                    result = sheets_service.spreadsheets().values().get(
-                        spreadsheetId=SPREADSHEET_ID,
-                        range='Clients!A:H' # Fetch up to Column H to get Square IDs
-                    ).execute()
-                    rows = result.get('values', [])
-                    for row_val in rows:
-                        if row_val and len(row_val) > 2 and row_val[2].strip().lower() == normalized_email:
-                            square_customer_id = row_val[6] if len(row_val) > 6 else ""
-                            square_card_id = row_val[7] if len(row_val) > 7 else ""
-                            print(f"BACKGROUND_TASK: Retrieved existing Square IDs for {client_email}: Cust={square_customer_id}, Card={square_card_id}")
-                            break
-                except Exception as sheet_e:
-                    print(f"ERROR: Failed to retrieve Square IDs from Clients sheet for {client_email}: {sheet_e}")
-            else:
-                print("ERROR: Sheets service not available for retrieving Square IDs.")
-        elif source_id and client_email: # Only process new card if source_id is present
-            try:
-                # 0.1 Search for existing customer to avoid duplicates
-                search_body = {
-                    "query": { "filter": {
-                        "email_address": {"exact": client_email.strip().lower()}
-                    }},
-                    "limit": 1
-                }
-                search_result = square_client.customers.search_customers(body=search_body)
-                if search_result.is_success() and search_result.body.get('customers'):
-                    square_customer_id = search_result.body['customers'][0]['id']
-                    print(f"BACKGROUND_TASK: Existing Square customer found: {square_customer_id}")
-                else:
-                    # Create New Customer
-                    cust_body = {
-                        "given_name": client_info.get('first_name'),
-                        "family_name": client_info.get('last_name'),
-                        "email_address": client_email,
-                        "phone_number": client_info.get('phone'),
-                        "idempotency_key": str(uuid.uuid4())
-                    }
-                    cust_result = square_client.customers.create_customer(body=cust_body)
-                    if cust_result.is_success():
-                        square_customer_id = cust_result.body['customer']['id']
-                    else:
-                        # Detailed logging for debugging sandbox issues
-                        print(f"DEBUG: Customer Creation Failed. Errors: {cust_result.errors}")
-
-                # 0.2 Create Card on File using the token
-                if square_customer_id:
-                    card_body = {
-                        "idempotency_key": str(uuid.uuid4()),
-                        "source_id": source_id,
-                        "card": {
-                            "customer_id": square_customer_id,
-                            "cardholder_name": f"{client_info.get('first_name')} {client_info.get('last_name')}"
-                        }
-                    }
-                    card_result = square_client.cards.create_card(body=card_body)
-                    if card_result.is_success():
-                        square_card_id = card_result.body['card']['id']
-                        print(f"BACKGROUND_TASK: SUCCESS - Card {square_card_id} linked to {square_customer_id} for {client_email}")
-                    else:
-                        print(f"DEBUG: Card Link Failed. Errors: {card_result.errors}. Token used: {source_id}")
-
-            except Exception as sq_e:
-                print(f"ERROR: Unexpected Square API error: {sq_e}")
-
+    # --- Define Async Task for Emails and Sheets ---
+    def _handle_booking_background(square_customer_id, square_card_id):
         # Update Calendar description with Square IDs for Admin reference
         if square_customer_id:
             customer_link = f"https://squareup.com/dashboard/customers/directory/customer/{square_customer_id}"
@@ -888,7 +891,7 @@ def book_appointment():
             print(f"CRITICAL: Failed to send admin notification email for booking. Error: {e}")
 
     # --- Start Background Thread ---
-    threading.Thread(target=_handle_booking_background).start()
+    threading.Thread(target=_handle_booking_background, args=(square_customer_id, square_card_id)).start()
 
     return jsonify({
         "message": "Booking successful!",
