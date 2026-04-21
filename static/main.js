@@ -245,6 +245,12 @@ document.addEventListener("DOMContentLoaded", () => {
           const elementPosition = servicesSection.getBoundingClientRect().bottom + window.scrollY;
           window.scrollTo({ top: elementPosition - 180, behavior: 'smooth' });
         }
+      } else if (href === '#services' && targetElement) {
+        // Special case for "Services" to align navbar bottom exactly with hero bottom/section top
+        const header = document.querySelector('header');
+        const headerHeight = header ? header.offsetHeight : 180;
+        const elementPosition = targetElement.getBoundingClientRect().top + window.scrollY;
+        window.scrollTo({ top: elementPosition - headerHeight, behavior: 'smooth' });
       } else if (targetElement) {
         targetElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
