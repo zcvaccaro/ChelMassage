@@ -83,10 +83,47 @@ document.addEventListener("DOMContentLoaded", () => {
     const btn = e.target.closest('a, button');
     if (!btn || e.target.closest('#lookup-modal')) return;
     const href = btn.getAttribute('href') || '';
+
+    // Intercept Gift Card buttons
+    if (btn.classList.contains('gift-card-btn')) {
+        e.preventDefault();
+        const giftModal = document.getElementById('gift-card-modal');
+        if (giftModal) giftModal.style.display = 'flex';
+        return;
+    }
+
     if (href.includes('Booking.html') || href.includes('OnSiteRequest.html') || btn.classList.contains('reserve-btn')) {
         e.preventDefault();
         showLookupModal(href || '/Booking.html');
     }
+  });
+
+  // --- Gift Card Modal Logic ---
+  const giftModal = document.getElementById('gift-card-modal');
+  const giftOpts = document.querySelectorAll('.price-opt');
+  const giftSummary = document.getElementById('gift-selection-summary');
+  const giftDetail = document.getElementById('gift-summary-detail');
+  const giftPrice = document.getElementById('gift-summary-price');
+
+  giftOpts.forEach(opt => {
+    opt.addEventListener('click', () => {
+        // UI Feedback
+        giftOpts.forEach(o => o.classList.remove('selected'));
+        opt.classList.add('selected');
+
+        // Update Content
+        const treatment = opt.dataset.treatment;
+        const duration = opt.dataset.duration;
+        const price = opt.dataset.price;
+
+        giftDetail.innerText = `${duration}-Min ${treatment} — $${price}`;
+        giftPrice.innerText = `$${price}`;
+        giftSummary.style.display = 'block';
+    });
+  });
+
+  document.getElementById('closeGiftModal')?.addEventListener('click', () => {
+    if (giftModal) giftModal.style.display = 'none';
   });
 
   // Helper function to animate elements

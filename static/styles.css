@@ -177,6 +177,11 @@ header {
   white-space: nowrap; /* Prevent buttons from stacking */
 }
 
+/* Vertically center the CTA group with the text links */
+#navMenu .nav-cta-group {
+  transform: translateY(-3px);
+}
+
 .nav-cta-group .cta {
   margin: 0 !important;
   position: relative;
@@ -187,7 +192,7 @@ header {
   color: #000 !important;
   border-radius: 50px 0 0 50px !important;
   border-right: none !important;
-  padding-right: 50px !important; /* Allows space to tuck under the next button */
+  padding-right: 49px !important; /* Adjusted to balance padding for text centering */
   margin-right: -25px !important; /* Pulls the reserve button over the right edge */
   z-index: 1;
   transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out, border-color 0.2s ease-in-out !important;
@@ -200,7 +205,10 @@ header {
 }
 
 .nav-cta-group .reserve-btn {
-  z-index: 2; /* Keeps the full pill shape on top of the call button's straight edge */
+  border-radius: 50px !important; /* Restored full pill shape */
+  padding: 12px 24px !important; /* Symmetrical padding to center text within the pill */
+  margin-right: -25px !important;
+  z-index: 3; /* Sits on top of Call and Gift Card buttons */
   transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out, border-color 0.2s ease-in-out !important;
 }
 
@@ -208,6 +216,79 @@ header {
   background-color: var(--brand-gold) !important;
   color: #fff !important;
   border-color: var(--brand-gold) !important;
+}
+
+.nav-cta-group .gift-card-btn {
+  background-color: #444444 !important; /* White background */
+  color: #ffffff !important; /* Black font */
+  border: 1px solid #000 !important; /* Black border */
+  border-left: none !important; /* Clean connection line */
+  margin-left: 0 !important; /* Overlap is now controlled by Reserve's margin-right */
+  border-radius: 0 50px 50px 0 !important; /* Flat left for connection, rounded right */
+  padding-left: 32px !important; /* Balanced with Call button's right padding for symmetry */
+  z-index: 2; /* Sits below Reserve */
+}
+
+.nav-cta-group .gift-card-btn:hover {
+  background-color: var(--brand-gold) !important;
+  border-color: var(--brand-gold) !important;
+  color: #fff !important;
+}
+
+/* --- Gift Card Modal Styles --- */
+.price-categories {
+  text-align: center;
+  margin: 1.5rem 0;
+}
+
+.price-cat-group {
+  margin-bottom: 1.2rem;
+}
+
+.price-cat-group h4 {
+  font-size: 1rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 2px;
+}
+
+.price-options-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.price-opt {
+  padding: 6px 12px;
+  border: 1px solid #ccc;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  background: #fff;
+  color: #000; /* Black text for default state */
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.price-opt:hover {
+  border-color: var(--brand-gold);
+  background: var(--brand-gold);
+  color: #fff;
+}
+
+.price-opt.selected {
+  border-color: #000;
+  background: #000;
+  color: #fff;
+}
+
+.gift-selection-summary {
+  background: #f9f9f9;
+  padding: 1rem;
+  border-radius: 8px;
+  margin-top: 1rem;
+  border-top: 4px solid var(--brand-gold);
+  text-align: center;
 }
 
 #navMenu a {
@@ -914,6 +995,7 @@ input.datepicker {
   max-width: 600px;
   width: 90%;
   position: relative;
+  text-align: center;
   box-shadow: 0 5px 15px rgba(0,0,0,0.3);
 }
 

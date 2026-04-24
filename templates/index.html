@@ -78,6 +78,7 @@
         <div class="nav-cta-group">
           <a href="tel:8456949510" class="cta call-btn">Call</a>
           <a href="{{ url_for('booking_page') }}" class="cta reserve-btn">Reserve Now</a>
+          <a href="#" class="cta gift-card-btn" id="giftCardTriggerNav">Gift Cards</a>
         </div>
       </nav>
       <button class="nav-toggle" id="navToggle">☰</button>
@@ -93,6 +94,7 @@
       <div class="nav-cta-group">
         <a href="tel:8456949510" class="cta call-btn">Call</a>
         <a href="{{ url_for('booking_page') }}" class="cta reserve-btn">Reserve Now</a>
+        <a href="#" class="cta gift-card-btn" id="giftCardTriggerHero">Gift Cards</a>
       </div>
     </div>
     </section>
@@ -294,6 +296,46 @@
 
   <!-- Overlay for when a card is open -->
   <div class="overlay"></div>
+
+  <!-- Gift Card Modal -->
+  <div id="gift-card-modal" class="modal-overlay">
+    <div class="modal-content" style="max-width: 500px;">
+      <button class="close-modal-btn" id="closeGiftModal">&times;</button>
+      <h3>Gift Cards</h3>
+      <p style="font-size: 0.9rem; color: #666;">Gift card purchases are made securely through Square. Service prices are as follows:</p>
+      
+      <div class="price-categories">
+        <div class="price-cat-group">
+          <h4>Deep Tissue / Swedish</h4>
+          <div class="price-options-grid">
+            <button class="price-opt" data-treatment="Deep Tissue/Swedish" data-duration="30" data-price="75">30min: $75</button>
+            <button class="price-opt" data-treatment="Deep Tissue/Swedish" data-duration="60" data-price="130">60min: $130</button>
+            <button class="price-opt" data-treatment="Deep Tissue/Swedish" data-duration="90" data-price="180">90min: $180</button>
+          </div>
+        </div>
+        <div class="price-cat-group">
+          <h4>Prenatal</h4>
+          <div class="price-options-grid">
+            <button class="price-opt" data-treatment="Prenatal" data-duration="60" data-price="120">60min: $120</button>
+          </div>
+        </div>
+        <div class="price-cat-group">
+          <h4>Myofascial Release (MFR)</h4>
+          <div class="price-options-grid">
+            <button class="price-opt" data-treatment="MFR" data-duration="30" data-price="85">30min: $85</button>
+            <button class="price-opt" data-treatment="MFR" data-duration="60" data-price="140">60min: $140</button>
+            <button class="price-opt" data-treatment="MFR" data-duration="90" data-price="190">90min: $190</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="gift-selection-summary" class="gift-selection-summary" style="display: none; text-align: center;">
+        <p style="margin-bottom: 0.5rem;"><strong>You selected:</strong><br><span id="gift-summary-detail">60-Min Deep Tissue — $130</span></p>
+        <p style="font-size: 0.9rem; margin-bottom: 1rem;"><strong>Next step:</strong><br>You’ll complete your purchase securely via Square. Please select or enter <span id="gift-summary-price" style="font-weight: bold;">$130</span> on the checkout page.</p>
+        <a href="https://app.squareup.com/gift/MLMNW86M6V65R/order" target="_blank" class="cta" style="width: 100%; text-align: center;">Continue to Secure Checkout</a>
+      </div>
+    </div>
+  </div>
 
   <script src="{{ url_for('static', filename='main.js') }}"></script>
 </body>

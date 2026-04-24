@@ -5,7 +5,6 @@ from datetime import timezone, timedelta
 import io
 import os
 import threading
-from twilio.rest import Client as TwilioClient
 from urllib.parse import urlencode
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -50,15 +49,6 @@ SQUARE_ACCESS_TOKEN = os.getenv("SQUARE_ACCESS_TOKEN", "").strip()
 SQUARE_LOCATION_ID = os.getenv("SQUARE_LOCATION_ID", "").strip()
 SQUARE_ENV = os.getenv("SQUARE_ENVIRONMENT", "sandbox").strip().lower()
 
-# --- Twilio Configuration ---
-TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
-TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
-TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER", "").strip()
-
-twilio_client = TwilioClient(
-    TWILIO_ACCOUNT_SID,
-    TWILIO_AUTH_TOKEN
-)
 
 square_client = Client(access_token=SQUARE_ACCESS_TOKEN, environment=SQUARE_ENV) # Square Client initialized after all env vars are loaded
 
@@ -321,7 +311,7 @@ def intake_confirmation_page():
     """Serves the intake form confirmation page."""
     return render_template('IntakeConfirm.html')
 
-def _get_available_dates_list(days_to_scan=90):
+def _get_available_dates_list(days_to_scan=180):
     """Internal helper to get a list of dates with "open for bookings" events."""
     start_date = datetime.datetime.now(timezone.utc)
     end_date = start_date + timedelta(days=days_to_scan)
@@ -453,7 +443,9 @@ def lookup_client():
 @app.route('/api/available-days', methods=['GET'])
 def get_available_days():
     """Scans a date range and returns a list of dates ('YYYY-MM-DD')."""
-    available_dates = _get_available_dates_list()
+    # Get range from query params, default to 180 days (6 months)
+    days = request.args.get('range', default=180, type=int)
+    available_dates = _get_available_dates_list(days_to_scan=days)
     return jsonify(available_dates)
 
 @app.route('/api/availability', methods=['GET'])
@@ -940,28 +932,59 @@ def charge_cancellation():
         print(f"PRODUCTION_CRITICAL_ERROR: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
-def _send_twilio_sms(phone_number, message_body):
-    """Sends an SMS using the Twilio API."""
-    if not all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER]):
-        print("ERROR: Twilio configuration is incomplete.")
-        return False
-    try:
-        # Ensure E.164 format (assumes US numbers for len 10)
-        clean_phone = "".join(filter(str.isdigit, phone_number))
-        if len(clean_phone) == 10:
-            clean_phone = "+1" + clean_phone
-        elif not clean_phone.startswith('+'):
-            clean_phone = "+" + clean_phone
+def _send_textbee_sms(phone_number, message_body):
+    """Sends an SMS using the TextBee API with improved reliability and debugging."""
+    import requests
+    api_key = os.getenv("TEXTBEE_API_KEY")
+    url = "https://api.textbee.dev/send"
 
-        twilio_client.messages.create(
-            body=message_body,
-            from_=TWILIO_PHONE_NUMBER,
-            to=clean_phone
-        )
-        return True
-    except Exception as e:
-        print(f"ERROR: Twilio failed to send SMS: {e}")
+    if not api_key:
+        print("SMS ERROR: TEXTBEE_API_KEY is not set.")
         return False
+
+    # Normalize phone number (E.164)
+    clean_phone = "".join(filter(str.isdigit, phone_number))
+    if len(clean_phone) == 10:
+        clean_phone = "+1" + clean_phone
+    elif not clean_phone.startswith('+'):
+        clean_phone = "+" + clean_phone
+
+    payload = {
+        "to": clean_phone,
+        "message": message_body,
+        "api_key": api_key
+    }
+
+    # Implement a single retry for transient failures
+    for attempt in range(2): # 0 is first try, 1 is retry
+        try:
+            r = requests.post(url, json=payload, timeout=10)
+
+            # Log response for debugging
+            print(f"DEBUG: TextBee Response Status: {r.status_code}")
+            print(f"DEBUG: TextBee Response Body: {r.text}")
+
+            if r.status_code == 200:
+                return True
+            else:
+                print(f"SMS ERROR: TextBee API failure. Status: {r.status_code}, Response: {r.text}")
+        except requests.exceptions.RequestException as e:
+            print(f"SMS ERROR: Request failed for {clean_phone} (Attempt {attempt+1}): {e}")
+
+        if attempt == 0:
+            print("INFO: Retrying SMS once...")
+
+    return False
+
+def send_sms(phone_number, message_body):
+    """Unified SMS wrapper that routes to the configured provider."""
+    provider = os.getenv("SMS_PROVIDER", "none").strip().lower()
+
+    if provider == "textbee":
+        return _send_textbee_sms(phone_number, message_body)
+
+    print(f"SMS disabled or unsupported provider: {provider}")
+    return False
 
 @app.route('/api/cron/reminders', methods=['GET']) # This is the cron job endpoint
 def trigger_reminders():
@@ -1034,7 +1057,7 @@ def trigger_reminders():
                 "I look forward to seeing you!"
             )
 
-            if _send_twilio_sms(phone, msg_body):
+            if send_sms(phone, msg_body):
                 sent_count += 1
                 print(f"INFO: REMINDER SENT: to {phone} for {summary}")
 
