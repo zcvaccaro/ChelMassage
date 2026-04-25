@@ -661,7 +661,7 @@ def book_appointment():
                 singleEvents=True
             ).execute()
             all_busy_events.extend([
-                e for e in events_result.get('items', []) 
+                e for e in events_result.get('items', [])
                 if e.get('summary', '').lower() != 'open for bookings' and 'dateTime' in e['start']
             ])
         except Exception as e:
@@ -936,6 +936,7 @@ def _send_textbee_sms(phone_number, message_body):
     """Sends an SMS using the TextBee API with improved reliability and debugging."""
     import requests
     api_key = os.getenv("TEXTBEE_API_KEY")
+    device_id = os.getenv("DEVICE_ID")
     url = "https://api.textbee.dev/send"
 
     if not api_key:
@@ -952,7 +953,8 @@ def _send_textbee_sms(phone_number, message_body):
     payload = {
         "to": clean_phone,
         "message": message_body,
-        "api_key": api_key
+        "api_key": api_key,
+        "device_id": device_id
     }
 
     # Implement a single retry for transient failures
@@ -1045,16 +1047,14 @@ def trigger_reminders():
             client_full_name = summary.split("for")[-1].strip() if "for" in summary else "Valued Client"
             first_name = client_full_name.split(' ')[0]
 
-            formatted_day = local_start.strftime('%A')
             formatted_date = local_start.strftime('%B %d')
             formatted_time = local_start.strftime('%I:%M %p')
 
             msg_body = (
-                f"Hi {first_name} this is a reminder that you have a {duration} {service_type} appointment "
-                f"on {formatted_day} {formatted_date} at {formatted_time} at Chelsea Vaccaro Therapeutic Massage. "
-                "If you have not already, please complete the client intake form via the link in your confirmation email. "
-                "If you need to make changes to this appointment please call or text (845) 694-9510. "
-                "I look forward to seeing you!"
+                f"Hi {first_name}! This is a reminder of your {duration} {service_type} appointment "
+                f"tomorrow {formatted_date} at {formatted_time} at Chelsea Vaccaro Therapeutic Massage. "
+                "If you have not done so already, please fill out your client intake form via the link "
+                "within your booking confirmation email. I look forward to seeing you! -Chelsea"
             )
 
             if send_sms(phone, msg_body):
