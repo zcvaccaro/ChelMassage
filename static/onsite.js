@@ -73,6 +73,27 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // --- Custom Stepper Logic for Number of Clients ---
+    const incBtn = document.getElementById('incrementClients');
+    const decBtn = document.getElementById('decrementClients');
+
+    if (incBtn && decBtn && numberOfClientsInput) {
+        incBtn.addEventListener('click', () => {
+            let val = parseInt(numberOfClientsInput.value);
+            if (val < 5) {
+                numberOfClientsInput.value = val + 1;
+                numberOfClientsInput.dispatchEvent(new Event('change'));
+            }
+        });
+        decBtn.addEventListener('click', () => {
+            let val = parseInt(numberOfClientsInput.value);
+            if (val > 1) {
+                numberOfClientsInput.value = val - 1;
+                numberOfClientsInput.dispatchEvent(new Event('change'));
+            }
+        });
+    }
+
     // --- 4. Form Submission Logic ---
     const onsiteForm = document.querySelector('.reservation-form');
     if (onsiteForm) {

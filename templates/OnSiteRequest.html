@@ -75,7 +75,11 @@
 
         <div class="form-group clients-field">
           <label for="numberOfClients">Number of Clients (max of 5)</label>
-          <input type="number" id="numberOfClients" name="numberOfClients" min="1" max="5" value="1" required>
+          <div class="stepper-container">
+            <button type="button" class="stepper-btn" id="decrementClients" aria-label="Decrease number of clients">−</button>
+            <input type="number" id="numberOfClients" name="numberOfClients" min="1" max="5" value="1" required readonly>
+            <button type="button" class="stepper-btn" id="incrementClients" aria-label="Increase number of clients">+</button>
+          </div>
         </div>
       </div>
 

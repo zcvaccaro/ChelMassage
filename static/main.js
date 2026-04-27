@@ -8,6 +8,33 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // --- Global Phone Number Formatting ---
+  const formatPhoneInput = (e) => {
+    const input = e.target;
+    // Strip all non-numeric characters
+    let value = input.value.replace(/\D/g, '');
+    
+    // Limit to 10 digits
+    if (value.length > 10) value = value.slice(0, 10);
+    
+    let formattedValue = '';
+    if (value.length > 0) {
+      formattedValue = '(' + value.slice(0, 3);
+      if (value.length > 3) {
+        formattedValue += ') ' + value.slice(3, 6);
+        if (value.length > 6) {
+          formattedValue += '-' + value.slice(6, 10);
+        }
+      }
+    }
+    input.value = formattedValue;
+  };
+
+  // Apply formatting to all phone fields across all forms
+  document.querySelectorAll('input[type="tel"], #phone').forEach(phoneInput => {
+    phoneInput.addEventListener('input', formatPhoneInput);
+  });
+
   // Close mobile menu when clicking outside of it
   document.addEventListener('click', (e) => {
     if (navMenu.classList.contains('is-active') && !navMenu.contains(e.target) && !navToggle.contains(e.target)) {

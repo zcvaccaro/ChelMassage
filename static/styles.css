@@ -1031,6 +1031,31 @@ input.datepicker {
   flex: 1;
 }
 
+/* --- Custom Stepper Styles --- */
+.stepper-container {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 3rem;
+}
+.stepper-btn {
+  width: 3.5rem;
+  height: 100%;
+  border-radius: 5px;
+  background-color: #f4f4f4;
+  color: #000;
+  font-size: 1.5rem;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #ccc;
+  padding: 0;
+}
+#numberOfClients {
+  text-align: center;
+}
+
 @media (max-width: 600px) {
   /* Refine services grid for 2-column mobile layout */
   .services .grid {
