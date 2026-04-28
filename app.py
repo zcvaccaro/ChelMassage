@@ -993,6 +993,11 @@ def send_sms(phone_number, message_body):
 @app.route('/api/cron/reminders', methods=['GET']) # This is the cron job endpoint
 def trigger_reminders():
     """Cron endpoint to send SMS reminders 26 hours before appointments."""
+    # Security check: Ensure only authorized requests can trigger reminders
+    cron_key = os.getenv("CRON_SECRET_KEY")
+    if cron_key and request.args.get('key') != cron_key:
+        return jsonify({"error": "Unauthorized"}), 401
+
     now = datetime.datetime.now(timezone.utc)
     time_min = now # Look from now...
     time_max = now + timedelta(hours=48) # ...to 48 hours ahead to ensure no one is missed
@@ -1003,7 +1008,9 @@ def trigger_reminders():
         return jsonify({"error": "Google Calendar service unavailable"}), 500
 
     try:
-        all_remind_events = []
+        sent_count = 0
+        local_tz = ZoneInfo(LOCAL_TIMEZONE)
+
         for calendar_id in CALENDAR_IDS:
             res = service.events().list(
                 calendarId=calendar_id,
@@ -1012,79 +1019,86 @@ def trigger_reminders():
                 singleEvents=True,
                 orderBy='startTime'
             ).execute()
-            all_remind_events.extend(res.get('items', []))
 
-        sent_count = 0
-        local_tz = ZoneInfo(LOCAL_TIMEZONE)
-        for event in all_remind_events:
-            summary = event.get('summary', '')
-            if summary.lower().strip() == 'open for bookings':
-                continue
+            for event in res.get('items', []):
+                summary = event.get('summary', '')
+                if summary.lower().strip() == 'open for bookings':
+                    continue
 
-            desc = event.get('description', '')
+                desc = event.get('description', '')
 
-            if "REMINDER_SENT: TRUE" in desc:
-                continue
+                # Smart logic: Skip if a reminder was already sent for THIS specific start time
+                current_start_iso = event['start'].get('dateTime')
+                if not current_start_iso:
+                    continue # Skip all-day events
 
-            # Parse metadata
-            phone = None
-            duration = ""
-            service_type = ""
+                reminder_tag_prefix = "REMINDER_SENT_FOR: "
+                existing_reminder_time = next((line.replace(reminder_tag_prefix, "").strip()
+                                             for line in desc.split('\n')
+                                             if line.strip().startswith(reminder_tag_prefix)), None)
 
-            for line in desc.split('\n'):
-                line = line.strip()
-                if line.startswith('Phone:'):
-                    phone = line.replace('Phone:', '').strip()
-                elif line.startswith('Duration:'):
-                    duration = line.replace('Duration:', '').strip()
-                elif line.startswith('Service:'):
-                    service_type = line.replace('Service:', '').strip()
+                if existing_reminder_time == current_start_iso:
+                    continue
 
-            if not phone:
-                continue
+                # Parse metadata
+                phone = None
+                duration = ""
+                service_type = ""
+                for line in desc.split('\n'):
+                    line = line.strip()
+                    if line.startswith('Phone:'):
+                        phone = line.replace('Phone:', '').strip()
+                    elif line.startswith('Duration:'):
+                        duration = line.replace('Duration:', '').strip()
+                    elif line.startswith('Service:'):
+                        service_type = line.replace('Service:', '').strip()
 
-            start_dt = datetime.datetime.fromisoformat(event['start']['dateTime'].replace('Z', '+00:00'))
-            
-            # Only send if the appointment is between 22 and 30 hours away (approx. "tomorrow")
-            hours_until_appt = (start_dt - now).total_seconds() / 3600
-            if not (22 <= hours_until_appt <= 30):
-                continue
+                if not phone:
+                    continue
 
-            local_start = start_dt.astimezone(local_tz)
-            client_full_name = summary.split("for")[-1].strip() if "for" in summary else "Valued Client"
-            first_name = client_full_name.split(' ')[0]
+                start_dt = datetime.datetime.fromisoformat(current_start_iso.replace('Z', '+00:00'))
+                
+                # Only send if the appointment is between 22 and 30 hours away
+                hours_until_appt = (start_dt - now).total_seconds() / 3600
+                if not (22 <= hours_until_appt <= 30):
+                    continue
 
-            formatted_date = local_start.strftime('%B %d')
-            formatted_time = local_start.strftime('%I:%M %p')
+                local_start = start_dt.astimezone(local_tz)
+                client_full_name = summary.split("for")[-1].strip() if "for" in summary else "Valued Client"
+                first_name = client_full_name.split(' ')[0]
 
-            msg_body = (
-                f"Hi {first_name}! This is a reminder of your {duration} {service_type} appointment "
-                f"tomorrow {formatted_date} at {formatted_time} at Chelsea Vaccaro Therapeutic Massage. "
-                "If you have not done so already, please fill out your client intake form via the link "
-                "within your booking confirmation email. I look forward to seeing you! -Chelsea"
-            )
+                formatted_date = local_start.strftime('%B %d')
+                formatted_time = local_start.strftime('%I:%M %p')
 
-            if send_sms(phone, msg_body):
-                sent_count += 1
-                print(f"INFO: REMINDER SENT: to {phone} for {summary}")
+                msg_body = (
+                    f"Hi {first_name}! This is a reminder of your {duration} {service_type} appointment "
+                    f"tomorrow {formatted_date} at {formatted_time} at Chelsea Vaccaro Therapeutic Massage. "
+                    "If you have not done so already, please fill out your client intake form via the link "
+                    "within your booking confirmation email. I look forward to seeing you! -Chelsea"
+                )
 
-                # Idempotent Calendar Patch
-                try:
-                    # Re-fetch event to ensure we don't overwrite SOAP or Square links added by other processes
-                    refresh_event = service.events().get(calendarId=PRIMARY_CALENDAR_ID, eventId=event['id']).execute()
-                    current_desc = refresh_event.get('description', '')
-                    
-                    if "REMINDER_SENT: TRUE" not in current_desc:
-                        updated_desc = current_desc.rstrip() + "\nREMINDER_SENT: TRUE"
+                if send_sms(phone, msg_body):
+                    sent_count += 1
+                    print(f"INFO: REMINDER SENT: to {phone} for {summary}")
+
+                    try:
+                        # Re-fetch event from the correct calendar to ensure we don't overwrite other links
+                        refresh_event = service.events().get(calendarId=calendar_id, eventId=event['id']).execute()
+                        current_desc = refresh_event.get('description', '')
+                        
+                        # Remove any outdated reminder tags and add the new one
+                        clean_lines = [line for line in current_desc.split('\n') if not line.strip().startswith(reminder_tag_prefix)]
+                        updated_desc = "\n".join(clean_lines).rstrip() + f"\n{reminder_tag_prefix}{current_start_iso}"
+                        
                         service.events().patch(
-                            calendarId=PRIMARY_CALENDAR_ID,
+                            calendarId=calendar_id,
                             eventId=event['id'],
                             body={'description': updated_desc}
                         ).execute()
-                except Exception as patch_e:
-                    print(f"ERROR: Failed to patch event {event['id']} with idempotency tag: {patch_e}")
-            else:
-                print(f"WARNING: Failed to send reminder for {summary}")
+                    except Exception as patch_e:
+                        print(f"ERROR: Failed to patch event {event['id']} with smart tag: {patch_e}")
+                else:
+                    print(f"WARNING: Failed to send reminder for {summary}")
 
         return jsonify({"status": "success", "reminders_sent": sent_count})
     except Exception as e:
