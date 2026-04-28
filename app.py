@@ -723,9 +723,11 @@ def book_appointment():
     intake_url = url_for('intake_page', _external=True) + '?' + urlencode(intake_params)
 
     # Update the Calendar Event description with SOAP and Intake links
-    # Using HTML <a> tags to display user-friendly text instead of raw URLs
     try:
-        updated_desc = f"{description}\n\n--- ADMIN: SOAP NOTE LINK ---\n<a href=\"{soap_url}\">SOAP Form</a>"
+        # Fetch the event again to get the full_description we just created (containing Phone/Service)
+        current_event = service.events().get(calendarId=PRIMARY_CALENDAR_ID, eventId=calendar_event_id).execute()
+        latest_desc = current_event.get('description', '')
+        updated_desc = latest_desc + f"\n\n--- ADMIN: SOAP NOTE LINK ---\n<a href=\"{soap_url}\">SOAP Form</a>"
         service.events().patch(calendarId=PRIMARY_CALENDAR_ID, eventId=calendar_event_id, body={'description': updated_desc}).execute()
     except Exception as e:
         print(f"ERROR: Failed to update calendar event with links: {e}")
@@ -740,10 +742,10 @@ def book_appointment():
             customer_link = f"https://squareup.com/dashboard/customers/directory/customer/{square_customer_id}"
             admin_notes = f"\n\n--- ADMIN: SQUARE INFO ---\nCustomer Profile: <a href=\"{customer_link}\">Square Card Link</a>"
             try:
-                # Fetch the latest description to ensure we append to the most recent version (including SOAP link)
-                current_event = service.events().get(calendarId=PRIMARY_CALENDAR_ID, eventId=calendar_event_id).execute()
-                latest_desc = current_event.get('description', '')
-                service.events().patch(calendarId=PRIMARY_CALENDAR_ID, eventId=calendar_event_id, body={'description': latest_desc + admin_notes}).execute()
+                # Fetch latest description again to include the SOAP link just added
+                latest_event = service.events().get(calendarId=PRIMARY_CALENDAR_ID, eventId=calendar_event_id).execute()
+                final_desc = latest_event.get('description', '')
+                service.events().patch(calendarId=PRIMARY_CALENDAR_ID, eventId=calendar_event_id, body={'description': final_desc + admin_notes}).execute()
             except Exception as e:
                 print(f"ERROR: Failed to update calendar event with Square IDs: {e}")
 
@@ -787,7 +789,7 @@ def book_appointment():
                     request_body = {
                         "requests": [{
                             "insertDimension": {
-                                "range": {"sheetId": client_sheet_id, "dimension": "ROWS", "startIndex": 1, "endIndex": 2},
+                                "range": {"sheetId": client_sheet_id, "dimension": "ROWS", "startIndex": 4, "endIndex": 5},
                                 "inheritFromBefore": False
                             }
                         }]
@@ -796,7 +798,7 @@ def book_appointment():
 
                     sheets_service.spreadsheets().values().update(
                         spreadsheetId=SPREADSHEET_ID,
-                        range='Clients!A2',
+                        range='Clients!A5',
                         valueInputOption='USER_ENTERED',
                         body={'values': [client_row]}
                     ).execute()
@@ -937,7 +939,7 @@ def _send_textbee_sms(phone_number, message_body):
     import requests
     api_key = os.getenv("TEXTBEE_API_KEY")
     device_id = os.getenv("DEVICE_ID")
-    url = "https://api.textbee.dev/send"
+    url = "https://api.textbee.dev/api/v2/send-sms"
 
     if not api_key:
         print("SMS ERROR: TEXTBEE_API_KEY is not set.")
@@ -951,16 +953,16 @@ def _send_textbee_sms(phone_number, message_body):
         clean_phone = "+" + clean_phone
 
     payload = {
-        "to": clean_phone,
-        "message": message_body,
-        "api_key": api_key,
-        "device_id": device_id
+        "deviceId": device_id,
+        "to": [clean_phone], # V2 expects an array of recipients
+        "message": message_body
     }
+    headers = {"x-api-key": api_key}
 
     # Implement a single retry for transient failures
     for attempt in range(2): # 0 is first try, 1 is retry
         try:
-            r = requests.post(url, json=payload, timeout=10)
+            r = requests.post(url, json=payload, headers=headers, timeout=15)
 
             # Log response for debugging
             print(f"DEBUG: TextBee Response Status: {r.status_code}")
@@ -992,8 +994,8 @@ def send_sms(phone_number, message_body):
 def trigger_reminders():
     """Cron endpoint to send SMS reminders 26 hours before appointments."""
     now = datetime.datetime.now(timezone.utc)
-    time_min = now + timedelta(hours=25, minutes=30)
-    time_max = now + timedelta(hours=26, minutes=30)
+    time_min = now # Look from now...
+    time_max = now + timedelta(hours=48) # ...to 48 hours ahead to ensure no one is missed
 
     service = get_calendar_service()
     if not service:
@@ -1042,8 +1044,13 @@ def trigger_reminders():
                 continue
 
             start_dt = datetime.datetime.fromisoformat(event['start']['dateTime'].replace('Z', '+00:00'))
-            local_start = start_dt.astimezone(local_tz)
+            
+            # Only send if the appointment is between 22 and 30 hours away (approx. "tomorrow")
+            hours_until_appt = (start_dt - now).total_seconds() / 3600
+            if not (22 <= hours_until_appt <= 30):
+                continue
 
+            local_start = start_dt.astimezone(local_tz)
             client_full_name = summary.split("for")[-1].strip() if "for" in summary else "Valued Client"
             first_name = client_full_name.split(' ')[0]
 
@@ -1063,17 +1070,17 @@ def trigger_reminders():
 
                 # Idempotent Calendar Patch
                 try:
-                    if "REMINDER_SENT: TRUE" not in desc:
-                        updated_desc = desc.rstrip() + "\nREMINDER_SENT: TRUE"
-                    else:
-                        updated_desc = desc
-
-                    # Note: We patch the event in whichever calendar it was found in
-                    service.events().patch(
-                        calendarId=event.get('organizer', {}).get('email', PRIMARY_CALENDAR_ID),
-                        eventId=event['id'],
-                        body={'description': updated_desc}
-                    ).execute()
+                    # Re-fetch event to ensure we don't overwrite SOAP or Square links added by other processes
+                    refresh_event = service.events().get(calendarId=PRIMARY_CALENDAR_ID, eventId=event['id']).execute()
+                    current_desc = refresh_event.get('description', '')
+                    
+                    if "REMINDER_SENT: TRUE" not in current_desc:
+                        updated_desc = current_desc.rstrip() + "\nREMINDER_SENT: TRUE"
+                        service.events().patch(
+                            calendarId=PRIMARY_CALENDAR_ID,
+                            eventId=event['id'],
+                            body={'description': updated_desc}
+                        ).execute()
                 except Exception as patch_e:
                     print(f"ERROR: Failed to patch event {event['id']} with idempotency tag: {patch_e}")
             else:
@@ -1206,7 +1213,7 @@ def _handle_intake_submission_background(data, pdf_output):
                 request_body = {
                     "requests": [{
                         "insertDimension": {
-                            "range": {"sheetId": intake_sheet_id, "dimension": "ROWS", "startIndex": 1, "endIndex": 2},
+                            "range": {"sheetId": intake_sheet_id, "dimension": "ROWS", "startIndex": 4, "endIndex": 5},
                             "inheritFromBefore": False
                         }
                     }]
@@ -1216,7 +1223,7 @@ def _handle_intake_submission_background(data, pdf_output):
                 # Write the new intake data into the now-empty Row 2
                 sheets_service.spreadsheets().values().update(
                     spreadsheetId=SPREADSHEET_ID,
-                    range='Intake Forms!A2',
+                    range='Intake Forms!A5',
                     valueInputOption='USER_ENTERED',
                     body={'values': [intake_row]}
                 ).execute()
@@ -1544,7 +1551,7 @@ def _handle_onsite_request_background(data):
                 request_body = {
                     "requests": [{
                         "insertDimension": {
-                            "range": {"sheetId": sheet_id, "dimension": "ROWS", "startIndex": 1, "endIndex": 2},
+                            "range": {"sheetId": sheet_id, "dimension": "ROWS", "startIndex": 4, "endIndex": 5},
                             "inheritFromBefore": False
                         }
                     }]
@@ -1554,7 +1561,7 @@ def _handle_onsite_request_background(data):
                 # Write the new request data into Row 2
                 sheets_service.spreadsheets().values().update(
                     spreadsheetId=SPREADSHEET_ID,
-                    range=f"'{target_tab}'!A2",
+                    range=f"'{target_tab}'!A5",
                     valueInputOption='USER_ENTERED',
                     body={'values': [row_data]}
                 ).execute()
