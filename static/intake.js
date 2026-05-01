@@ -259,12 +259,28 @@ document.addEventListener('DOMContentLoaded', () => {
                     // Create a temporary canvas to merge the image and the drawing
                     const tempCanvas = document.createElement('canvas');
                     const tempCtx = tempCanvas.getContext('2d');
-                    tempCanvas.width = image.naturalWidth; // Use natural dimensions for best quality
-                    tempCanvas.height = image.naturalHeight;
+
+                    // --- NEW: Resize canvas before drawing to reduce image size ---
+                    const maxWidth = 800; // Example max width for the combined image
+                    const maxHeight = 800; // Example max height
+                    let width = image.naturalWidth;
+                    let height = image.naturalHeight;
+
+                    if (width > maxWidth) {
+                        height = height * (maxWidth / width);
+                        width = maxWidth;
+                    }
+                    if (height > maxHeight) {
+                        width = width * (maxHeight / height);
+                        height = maxHeight;
+                    }
+                    tempCanvas.width = width;
+                    tempCanvas.height = height;
+                    // --- END NEW ---
 
                     // Draw the background image first, then the user's drawing on top
-                    tempCtx.drawImage(image, 0, 0);
-                    tempCtx.drawImage(drawingCanvas, 0, 0, tempCanvas.width, tempCanvas.height);
+                    tempCtx.drawImage(image, 0, 0, tempCanvas.width, tempCanvas.height); // Scale image to new size
+                    tempCtx.drawImage(drawingCanvas, 0, 0, tempCanvas.width, tempCanvas.height); // Scale drawing to new size
 
                     return tempCanvas.toDataURL('image/png');
                 };

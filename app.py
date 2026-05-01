@@ -92,40 +92,77 @@ if not os.path.exists(SERVICE_ACCOUNT_FILE):
 
 app = Flask(__name__, template_folder='templates', static_folder='static') # Flask app initialized after all global configuration is loaded
 
-def get_google_service(service_name, version):
-    """Unified helper to get a Google API service using token.json (User) or key.json (Service Account)."""
-    creds = None
+# Global cache for Google API services
+_google_services = {}
+_google_creds_instance = None # To store the credentials instance once loaded
+
+def _get_credentials():
+    """Loads and caches Google credentials (either user or service account)."""
+    global _google_creds_instance
+    if _google_creds_instance:
+        # If user credentials, check for validity and refresh
+        if isinstance(_google_creds_instance, UserCredentials) and _google_creds_instance.expired and _google_creds_instance.refresh_token:
+            try:
+                _google_creds_instance.refresh(Request())
+                print("DEBUG: Refreshed user credentials.")
+            except Exception as e:
+                print(f"DEBUG: Failed to refresh user credentials: {e}")
+                _google_creds_instance = None # Invalidate if refresh fails
+        elif isinstance(_google_creds_instance, UserCredentials) and not _google_creds_instance.valid:
+            _google_creds_instance = None # Invalidate if not valid
+
+    if _google_creds_instance:
+        return _google_creds_instance
+
     script_dir = os.path.dirname(os.path.abspath(__file__))
     token_path = os.path.join(script_dir, 'token.json')
 
-    # 1. Try OAuth2 User Token (token.json) - Preferred for User's Drive/Calendar/Gmail
+    # 1. Try OAuth2 User Token (token.json)
     if os.path.exists(token_path):
         try:
             creds = UserCredentials.from_authorized_user_file(token_path, SCOPES)
             if creds and not creds.valid:
                 if creds.expired and creds.refresh_token:
                     creds.refresh(Request())
-                    with open(token_path, 'w') as token:
-                        token.write(creds.to_json())
+                else:
+                    creds = None
             if creds and creds.valid:
-                print(f"DEBUG: Using OAuth User Token for {service_name}")
-                return build(service_name, version, credentials=creds)
+                _google_creds_instance = creds
+                print("DEBUG: Loaded OAuth User Token.")
+                return _google_creds_instance
         except Exception as e:
-            print(f"DEBUG: User OAuth failed for {service_name}: {e}")
-            creds = None
+            print(f"DEBUG: User OAuth failed: {e}")
 
     # 2. Fallback to Service Account (key.json)
-    print(f"DEBUG: Falling back to Service Account for {service_name}")
-    if not creds:
-        if os.path.exists(SERVICE_ACCOUNT_FILE):
-            try:
-                creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
-                return build(service_name, version, credentials=creds)
-            except Exception as e:
-                print(f"ERROR: Service account failed for {service_name}: {e}")
-        else:
-            print(f"ERROR: No valid credentials for {service_name}")
+    if os.path.exists(SERVICE_ACCOUNT_FILE):
+        try:
+            creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
+            _google_creds_instance = creds
+            print("DEBUG: Loaded Service Account credentials.")
+            return _google_creds_instance
+        except Exception as e:
+            print(f"ERROR: Service account failed: {e}")
+    else:
+        print(f"ERROR: No valid credentials file found ({token_path} or {SERVICE_ACCOUNT_FILE}).")
+
     return None
+
+def get_google_service(service_name, version):
+    """Unified helper to get a Google API service, caching the built service objects."""
+    global _google_services
+
+    cache_key = f"{service_name}-{version}"
+    if cache_key not in _google_services:
+        creds = _get_credentials()
+        if creds:
+            _google_services[cache_key] = build(service_name, version, credentials=creds)
+            print(f"DEBUG: Built and cached {service_name} service.")
+        else:
+            print(f"ERROR: Could not get credentials to build {service_name} service.")
+            return None
+    else:
+        print(f"DEBUG: Using cached {service_name} service.")
+    return _google_services.get(cache_key)
 
 def get_calendar_service():
     return get_google_service('calendar', 'v3')
