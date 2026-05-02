@@ -715,10 +715,15 @@ def book_appointment():
         print(f"ERROR: /api/book: Failed during overlap check: {e}")
         return jsonify({"error": "Could not verify appointment availability. Please try again."}), 500
 
-    # Store metadata in description for SMS reminders
-    client_phone = client_info.get('phone', '') # This was already here.
-    meta_desc = f"Phone: {client_phone}\nDuration: {duration} min\nService: {service_type}"
-    full_description = f"{description}\n\n{meta_desc}"
+    # Store metadata in description for SMS reminders and business reference
+    client_phone = client_info.get('phone', '')
+    full_description = (
+        f"{description}\n"
+        f"Phone: {client_phone}\n"
+        f"Email: {client_email}\n"
+        f"Duration: {duration} min\n"
+        f"Service: {service_type}"
+    )
 
     # Pass the determined color ID to the create_event function
     created_event = create_event(service, summary, start_time, end_time, full_description, PRIMARY_CALENDAR_ID, color_id=event_color_id)
@@ -976,22 +981,21 @@ def _send_textbee_sms(phone_number, message_body):
     import requests
     api_key = os.getenv("TEXTBEE_API_KEY")
     device_id = os.getenv("DEVICE_ID")
-    url = "https://api.textbee.dev/api/v2/send-sms"
+    url = f"https://api.textbee.dev/api/v1/gateway/devices/{device_id}/send-sms"
 
-    if not api_key:
-        print("SMS ERROR: TEXTBEE_API_KEY is not set.")
+    if not api_key or not device_id:
+        print("SMS ERROR: TEXTBEE_API_KEY or DEVICE_ID is not set.")
         return False
 
     # Normalize phone number (E.164)
     clean_phone = "".join(filter(str.isdigit, phone_number))
     if len(clean_phone) == 10:
         clean_phone = "+1" + clean_phone
-    elif not clean_phone.startswith('+'):
+    elif len(clean_phone) > 10 and not phone_number.startswith('+'):
         clean_phone = "+" + clean_phone
 
     payload = {
-        "deviceId": device_id,
-        "to": [clean_phone], # V2 expects an array of recipients
+        "recipients": [clean_phone],
         "message": message_body
     }
     headers = {"x-api-key": api_key}
@@ -1069,13 +1073,25 @@ def trigger_reminders():
                 if not current_start_iso:
                     continue # Skip all-day events
 
-                reminder_tag_prefix = "REMINDER_SENT_FOR: "
-                existing_reminder_time = next((line.replace(reminder_tag_prefix, "").strip()
-                                             for line in desc.split('\n')
-                                             if line.strip().startswith(reminder_tag_prefix)), None)
+                # Normalize ISO strings to ensure reliable comparison
+                norm_current = datetime.datetime.fromisoformat(current_start_iso.replace('Z', '+00:00')).isoformat()
 
-                if existing_reminder_time == current_start_iso:
-                    continue
+                reminder_tag_prefix = "REMINDER_SENT_FOR: "
+                # Find the tag anywhere in the description lines
+                existing_reminder_raw = next((line.split(reminder_tag_prefix)[-1].strip()
+                                             for line in desc.split('\n')
+                                             if reminder_tag_prefix in line), None)
+
+                norm_existing = None
+                if existing_reminder_raw:
+                    try:
+                        norm_existing = datetime.datetime.fromisoformat(existing_reminder_raw.replace('Z', '+00:00')).isoformat()
+                        if norm_existing == norm_current:
+                            print(f"DEBUG CRON: Skipping '{summary}' - Reminder already sent for this time.")
+                            continue
+                    except (ValueError, TypeError):
+                        # If the tag is corrupted, we ignore it and proceed with sending safety
+                        pass
 
                 # Parse metadata
                 phone = None
@@ -1083,25 +1099,29 @@ def trigger_reminders():
                 service_type = ""
                 for line in desc.split('\n'):
                     line = line.strip()
-                    if line.startswith('Phone:'):
-                        phone = line.replace('Phone:', '').strip()
-                    elif line.startswith('Duration:'):
-                        duration = line.replace('Duration:', '').strip()
-                    elif line.startswith('Service:'):
-                        service_type = line.replace('Service:', '').strip()
+                    line_lower = line.lower()
+                    if line_lower.startswith('phone:'):
+                        phone = line[6:].strip()
+                    elif line_lower.startswith('duration:'):
+                        duration = line[9:].strip()
+                    elif line_lower.startswith('service:'):
+                        service_type = line[8:].strip()
 
+                print(f"DEBUG CRON: Checking '{summary}' | Phone Found: {bool(phone)}")
                 if not phone:
                     continue
 
                 start_dt = datetime.datetime.fromisoformat(current_start_iso.replace('Z', '+00:00'))
-                
+
                 # Only send if the appointment is between 22 and 30 hours away
                 hours_until_appt = (start_dt - now).total_seconds() / 3600
+                print(f"DEBUG CRON: '{summary}' is {hours_until_appt:.2f} hours away.")
+
                 if not (22 <= hours_until_appt <= 30):
                     continue
 
                 local_start = start_dt.astimezone(local_tz)
-                client_full_name = summary.split("for")[-1].strip() if "for" in summary else "Valued Client"
+                client_full_name = summary.split(" for ")[-1].strip() if " for " in summary.lower() else "Valued Client"
                 first_name = client_full_name.split(' ')[0]
 
                 formatted_date = local_start.strftime('%B %d')
@@ -1122,11 +1142,11 @@ def trigger_reminders():
                         # Re-fetch event from the correct calendar to ensure we don't overwrite other links
                         refresh_event = service.events().get(calendarId=calendar_id, eventId=event['id']).execute()
                         current_desc = refresh_event.get('description', '')
-                        
+
                         # Remove any outdated reminder tags and add the new one
                         clean_lines = [line for line in current_desc.split('\n') if not line.strip().startswith(reminder_tag_prefix)]
                         updated_desc = "\n".join(clean_lines).rstrip() + f"\n{reminder_tag_prefix}{current_start_iso}"
-                        
+
                         service.events().patch(
                             calendarId=calendar_id,
                             eventId=event['id'],
@@ -1141,6 +1161,97 @@ def trigger_reminders():
     except Exception as e:
         print(f"CRON ERROR: {e}")
         return jsonify({"error": str(e)}), 500
+
+@app.route('/api/admin/sync-calendar-descriptions', methods=['GET'])
+def sync_calendar_descriptions():
+    """Admin route to retroactively add metadata to upcoming appointments."""
+    cron_key = os.getenv("CRON_SECRET_KEY")
+    if cron_key and request.args.get('key') != cron_key:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    service = get_calendar_service()
+    sheets_service = get_sheets_service()
+    if not service or not sheets_service:
+        return jsonify({"error": "Services unavailable"}), 500
+
+    # 1. Fetch all clients from the spreadsheet
+    try:
+        client_data = sheets_service.spreadsheets().values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range='Clients!A:F'
+        ).execute().get('values', [])
+    except Exception as e:
+        return jsonify({"error": f"Failed to fetch sheet data: {e}"}), 500
+
+    # Create a lookup map: "first last" -> {phone, email}
+    client_map = {}
+    for row in client_data:
+        if len(row) >= 4:
+            full_name = f"{row[0]} {row[1]}".strip().lower()
+            client_map[full_name] = {"email": row[2], "phone": row[3]}
+
+    now = datetime.datetime.now(timezone.utc)
+    time_max = now + timedelta(days=60)
+    updates_made = 0
+
+    # 2. Iterate through upcoming events
+    for calendar_id in CALENDAR_IDS:
+        events = service.events().list(
+            calendarId=calendar_id,
+            timeMin=now.isoformat(),
+            timeMax=time_max.isoformat(),
+            singleEvents=True
+        ).execute().get('items', [])
+
+        for event in events:
+            summary = event.get('summary', '')
+            desc = event.get('description', '')
+
+            # Skip if it's not a booking or already has the metadata
+            if " for " not in summary.lower() or "Phone:" in desc:
+                continue
+
+            # Parse client name from "Service Type for Client Name"
+            try:
+                parts = summary.lower().split(" for ")
+                service_name = parts[0].strip().title()
+                client_name = parts[1].strip()
+            except (ValueError, IndexError):
+                continue
+
+            client_info = client_map.get(client_name)
+            if client_info:
+                # Calculate duration from event times
+                start = datetime.datetime.fromisoformat(event['start']['dateTime'].replace('Z', '+00:00'))
+                end = datetime.datetime.fromisoformat(event['end']['dateTime'].replace('Z', '+00:00'))
+                duration_mins = int((end - start).total_seconds() / 60) - 15 # Subtract buffer
+
+                # Build new description
+                new_meta = (
+                    f"Phone: {client_info['phone']}\n"
+                    f"Email: {client_info['email']}\n"
+                    f"Duration: {duration_mins} min\n"
+                    f"Service: {service_name}"
+                )
+
+                # Preserve existing comments if they exist
+                final_desc = desc.strip()
+                if final_desc:
+                    final_desc += "\n\n"
+                final_desc += new_meta
+
+                # Determine color based on service name if color isn't set
+                color_id = SERVICE_COLOR_MAPPING.get(service_name)
+
+                body = {'description': final_desc}
+                if color_id and not event.get('colorId'):
+                    body['colorId'] = color_id
+
+                service.events().patch(calendarId=calendar_id, eventId=event['id'], body=body).execute()
+                updates_made += 1
+                print(f"SYNC: Updated metadata for '{summary}' on {calendar_id}")
+
+    return jsonify({"status": "success", "updates_made": updates_made})
 
 
 def _handle_intake_submission_background(data, pdf_output):
