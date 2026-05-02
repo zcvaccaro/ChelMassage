@@ -5,11 +5,13 @@ from datetime import timezone, timedelta
 import io
 import os
 import threading
+import time
+import random
 from urllib.parse import urlencode
 from typing import Optional
 from zoneinfo import ZoneInfo
 import uuid
-
+from googleapiclient.errors import HttpError
 from dotenv import load_dotenv
 from flask import Flask, request, jsonify, render_template, url_for, send_from_directory, redirect
 from fpdf import FPDF
@@ -1051,8 +1053,9 @@ def trigger_reminders():
     try:
         sent_count = 0
         local_tz = ZoneInfo(LOCAL_TIMEZONE)
+        processed_keys = set() # Prevent duplicate sends for synced calendars
 
-        for calendar_id in CALENDAR_IDS:
+        for calendar_id in list(set(CALENDAR_IDS)): # Ensure unique calendar IDs
             res = service.events().list(
                 calendarId=calendar_id,
                 timeMin=time_min.isoformat(),
@@ -1076,22 +1079,29 @@ def trigger_reminders():
                 # Normalize ISO strings to ensure reliable comparison
                 norm_current = datetime.datetime.fromisoformat(current_start_iso.replace('Z', '+00:00')).isoformat()
 
-                reminder_tag_prefix = "REMINDER_SENT_FOR: "
-                # Find the tag anywhere in the description lines
-                existing_reminder_raw = next((line.split(reminder_tag_prefix)[-1].strip()
-                                             for line in desc.split('\n')
-                                             if reminder_tag_prefix in line), None)
+                # Skip if already processed in this specific run
+                event_key = f"{event['id']}_{norm_current}"
+                if event_key in processed_keys:
+                    continue
+                processed_keys.add(event_key)
 
-                norm_existing = None
-                if existing_reminder_raw:
-                    try:
-                        norm_existing = datetime.datetime.fromisoformat(existing_reminder_raw.replace('Z', '+00:00')).isoformat()
-                        if norm_existing == norm_current:
-                            print(f"DEBUG CRON: Skipping '{summary}' - Reminder already sent for this time.")
-                            continue
-                    except (ValueError, TypeError):
-                        # If the tag is corrupted, we ignore it and proceed with sending safety
-                        pass
+                reminder_tag_prefix = "REMINDER_SENT_FOR: "
+
+                # 1. DISPERSE WORKERS: Add random jitter to prevent synchronized race conditions
+                time.sleep(random.uniform(0.1, 1.2))
+
+                # 2. ATOMIC LOCK: Re-fetch the event to check for a tag added by another worker
+                try:
+                    fresh_event = service.events().get(calendarId=calendar_id, eventId=event['id']).execute()
+                    fresh_desc = fresh_event.get('description', '')
+                    
+                    # Basic tag existence check
+                    if reminder_tag_prefix in fresh_desc:
+                        print(f"DEBUG CRON: Skipping '{summary}' - Found tag in fresh fetch.")
+                        continue
+                except Exception as e:
+                    print(f"ERROR: Failed to verify status for {event['id']}: {e}")
+                    continue
 
                 # Parse metadata
                 phone = None
@@ -1107,26 +1117,43 @@ def trigger_reminders():
                     elif line_lower.startswith('service:'):
                         service_type = line[8:].strip()
 
-                print(f"DEBUG CRON: Checking '{summary}' | Phone Found: {bool(phone)}")
                 if not phone:
                     continue
 
                 start_dt = datetime.datetime.fromisoformat(current_start_iso.replace('Z', '+00:00'))
 
-                # Only send if the appointment is between 22 and 30 hours away
                 hours_until_appt = (start_dt - now).total_seconds() / 3600
-                print(f"DEBUG CRON: '{summary}' is {hours_until_appt:.2f} hours away.")
-
-                if not (22 <= hours_until_appt <= 30):
+                if not (25 <= hours_until_appt <= 27):
                     continue
 
+                # 3. APPLY LOCK: Patch description using ETags for optimistic concurrency
+                try:
+                    clean_lines = [line for line in fresh_desc.split('\n') if not line.strip().startswith(reminder_tag_prefix)]
+                    locked_desc = "\n".join(clean_lines).rstrip() + f"\n{reminder_tag_prefix}{current_start_iso}"
+                    service.events().patch(
+                        calendarId=calendar_id,
+                        eventId=event['id'],
+                        body={'description': locked_desc},
+                        # If another worker updated the event since our 'get', this fails with 412
+                        headers={'If-Match': fresh_event.get('etag')}
+                    ).execute()
+                    print(f"DEBUG CRON: Locked event '{summary}' with reminder tag.")
+                except HttpError as e:
+                    if e.resp.status == 412:
+                        print(f"DEBUG CRON: Conflict detected for '{summary}'. Another worker already sent this.")
+                        continue
+                    print(f"ERROR: Failed to lock event {event['id']}: {e}")
+                    continue
+                except Exception as e:
+                    print(f"ERROR: Failed to lock event {event['id']}: {e}")
+                    continue
+
+                # 4. SEND SMS: Only reachable if the 'lock' above succeeded
                 local_start = start_dt.astimezone(local_tz)
                 client_full_name = summary.split(" for ")[-1].strip() if " for " in summary.lower() else "Valued Client"
                 first_name = client_full_name.split(' ')[0]
-
                 formatted_date = local_start.strftime('%B %d')
                 formatted_time = local_start.strftime('%I:%M %p')
-
                 msg_body = (
                     f"Hi {first_name}! This is a reminder of your {duration} {service_type} appointment "
                     f"tomorrow {formatted_date} at {formatted_time} at Chelsea Vaccaro Therapeutic Massage. "
@@ -1137,25 +1164,8 @@ def trigger_reminders():
                 if send_sms(phone, msg_body):
                     sent_count += 1
                     print(f"INFO: REMINDER SENT: to {phone} for {summary}")
-
-                    try:
-                        # Re-fetch event from the correct calendar to ensure we don't overwrite other links
-                        refresh_event = service.events().get(calendarId=calendar_id, eventId=event['id']).execute()
-                        current_desc = refresh_event.get('description', '')
-
-                        # Remove any outdated reminder tags and add the new one
-                        clean_lines = [line for line in current_desc.split('\n') if not line.strip().startswith(reminder_tag_prefix)]
-                        updated_desc = "\n".join(clean_lines).rstrip() + f"\n{reminder_tag_prefix}{current_start_iso}"
-
-                        service.events().patch(
-                            calendarId=calendar_id,
-                            eventId=event['id'],
-                            body={'description': updated_desc}
-                        ).execute()
-                    except Exception as patch_e:
-                        print(f"ERROR: Failed to patch event {event['id']} with smart tag: {patch_e}")
                 else:
-                    print(f"WARNING: Failed to send reminder for {summary}")
+                    print(f"WARNING: Lock applied but SMS failed for {summary}")
 
         return jsonify({"status": "success", "reminders_sent": sent_count})
     except Exception as e:
