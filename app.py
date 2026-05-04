@@ -22,7 +22,6 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials as UserCredentials
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseUpload
 
 from email.mime.multipart import MIMEMultipart
@@ -990,14 +989,11 @@ def _send_textbee_sms(phone_number, message_body):
         return False
 
     # Normalize phone number (E.164)
-    clean_phone = "".join(filter(str.isdigit, phone_number))
-    if len(clean_phone) == 10:
-        clean_phone = "+1" + clean_phone
-    elif len(clean_phone) > 10 and not phone_number.startswith('+'):
-        clean_phone = "+" + clean_phone
+    digits = "".join(filter(str.isdigit, phone_number))
+    clean_phone = "+" + digits if len(digits) > 10 else "+1" + digits
 
     payload = {
-        "recipients": [clean_phone],
+        "to": clean_phone,
         "message": message_body
     }
     headers = {"x-api-key": api_key}
@@ -1086,6 +1082,7 @@ def trigger_reminders():
                 processed_keys.add(event_key)
 
                 reminder_tag_prefix = "REMINDER_SENT_FOR: "
+                specific_tag = f"{reminder_tag_prefix}{current_start_iso}"
 
                 # 1. DISPERSE WORKERS: Add random jitter to prevent synchronized race conditions
                 time.sleep(random.uniform(0.1, 1.2))
@@ -1095,9 +1092,9 @@ def trigger_reminders():
                     fresh_event = service.events().get(calendarId=calendar_id, eventId=event['id']).execute()
                     fresh_desc = fresh_event.get('description', '')
                     
-                    # Basic tag existence check
-                    if reminder_tag_prefix in fresh_desc:
-                        print(f"DEBUG CRON: Skipping '{summary}' - Found tag in fresh fetch.")
+                    # Specific tag check: Only skip if a reminder was sent for THIS start time
+                    if specific_tag in fresh_desc:
+                        print(f"DEBUG CRON: Skipping '{summary}' - Reminder already sent for {current_start_iso}.")
                         continue
                 except Exception as e:
                     print(f"ERROR: Failed to verify status for {event['id']}: {e}")
