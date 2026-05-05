@@ -197,6 +197,15 @@ def execute_with_retry(request, max_retries=3):
                 continue
             raise
 
+def parse_iso_datetime(value: Optional[str]) -> datetime.datetime:
+    """Parse ISO-8601 datetimes reliably, including trailing `Z` (UTC)."""
+    if not value:
+        raise ValueError("Empty datetime value")
+    normalized = value.strip()
+    if normalized.endswith('Z'):
+        normalized = normalized[:-1] + '+00:00'
+    return datetime.datetime.fromisoformat(normalized)
+
 def norm_email(email):
     """Strips and lowercases email addresses for comparison."""
     return email.strip().lower() if email else ""
@@ -620,7 +629,7 @@ def book_appointment():
         return jsonify({"error": "Invalid JSON payload."}), 400
 
     try:
-        start_time = datetime.datetime.fromisoformat(data['start_time'])
+        start_time = parse_iso_datetime(data['start_time'])
         duration = int(data['service_duration'])
         buffer = 15 # Increased buffer from 10 to 15 minutes
         end_time = start_time + timedelta(minutes=duration + buffer)
@@ -640,6 +649,37 @@ def book_appointment():
     service = get_calendar_service()
     if not service:
         return jsonify({"error": "Could not connect to Google Calendar service."}), 500
+
+    # --- Overlap Prevention Logic (run BEFORE any Square side effects) ---
+    # This prevents creating/storing Square card details for bookings that we later reject.
+    check_start = start_time - timedelta(hours=1)
+    check_end = end_time + timedelta(hours=1)
+
+    all_busy_events = []
+    for calendar_id in CALENDAR_IDS:
+        try:
+            events_result = service.events().list(
+                calendarId=calendar_id,
+                timeMin=check_start.isoformat(),
+                timeMax=check_end.isoformat(),
+                singleEvents=True
+            ).execute()
+            all_busy_events.extend([
+                e for e in events_result.get('items', [])
+                if e.get('summary', '').lower() != 'open for bookings' and 'dateTime' in e.get('start', {})
+            ])
+        except Exception as e:
+            print(f"ERROR: /api/book: Failed overlap check for {calendar_id}: {e}")
+
+    try:
+        for busy_event in all_busy_events:
+            busy_start = parse_iso_datetime(busy_event['start']['dateTime'])
+            busy_end = parse_iso_datetime(busy_event['end']['dateTime'])
+            if start_time < busy_end and end_time > busy_start:
+                return jsonify({"error": "The selected time slot is no longer available. Please choose another time."}), 409
+    except Exception as e:
+        print(f"ERROR: /api/book: Failed during overlap check: {e}")
+        return jsonify({"error": "Could not verify appointment availability. Please try again."}), 500
 
     # --- Foreground Square Verification ---
     square_customer_id = ""
@@ -716,37 +756,6 @@ def book_appointment():
 
     # Determine event color based on service type
     event_color_id = SERVICE_COLOR_MAPPING.get(service_type)
-
-    # --- Overlap Prevention Logic ---
-    check_start = start_time - timedelta(hours=1)
-    check_end = end_time + timedelta(hours=1)
-    
-    all_busy_events = []
-    for calendar_id in CALENDAR_IDS:
-        try:
-            events_result = service.events().list(
-                calendarId=calendar_id,
-                timeMin=check_start.isoformat(),
-                timeMax=check_end.isoformat(),
-                singleEvents=True
-            ).execute()
-            all_busy_events.extend([
-                e for e in events_result.get('items', [])
-                if e.get('summary', '').lower() != 'open for bookings' and 'dateTime' in e['start']
-            ])
-        except Exception as e:
-            print(f"ERROR: /api/book: Failed overlap check for {calendar_id}: {e}")
-
-    try:
-        for busy_event in all_busy_events:
-            busy_start = datetime.datetime.fromisoformat(busy_event['start']['dateTime'])
-            busy_end = datetime.datetime.fromisoformat(busy_event['end']['dateTime'])
-            if start_time < busy_end and end_time > busy_start:
-                return jsonify({"error": "The selected time slot is no longer available. Please choose another time."}), 409
-
-    except Exception as e:
-        print(f"ERROR: /api/book: Failed during overlap check: {e}")
-        return jsonify({"error": "Could not verify appointment availability. Please try again."}), 500
 
     # Store metadata in description for SMS reminders and business reference
     client_phone = client_info.get('phone', '')
@@ -1118,8 +1127,9 @@ def trigger_reminders():
                     continue
                 processed_keys.add(event_key)
 
-                reminder_tag_prefix = "REMINDER_SENT_FOR: "
-                specific_tag = f"{reminder_tag_prefix}{current_start_iso}"
+                reminder_sent_tag_prefix = "REMINDER_SENT_FOR: "
+                reminder_lock_tag_prefix = "REMINDER_LOCKED_FOR: "
+                specific_sent_tag = f"{reminder_sent_tag_prefix}{current_start_iso}"
 
                 # 1. DISPERSE WORKERS: Add random jitter to prevent synchronized race conditions
                 time.sleep(random.uniform(0.1, 1.2))
@@ -1129,8 +1139,8 @@ def trigger_reminders():
                     fresh_event = execute_with_retry(service.events().get(calendarId=calendar_id, eventId=event['id']))
                     fresh_desc = fresh_event.get('description', '')
                     
-                    # Specific tag check: Only skip if a reminder was sent for THIS start time
-                    if specific_tag in fresh_desc:
+                    # Skip if a reminder was already sent for THIS start time
+                    if specific_sent_tag in fresh_desc:
                         print(f"DEBUG CRON: Skipping '{summary}' (ID: {event['id']}) - Reminder already sent for {current_start_iso}.")
                         continue
                 except Exception as e:
@@ -1164,10 +1174,18 @@ def trigger_reminders():
                 if abs(hours_until_appt - TARGET_HOURS) > TOLERANCE:
                     continue
 
-                # 3. APPLY LOCK: Patch description using ETags for optimistic concurrency
+                # 3. ATOMIC SEND MARK:
+                # Mark `REMINDER_SENT_FOR` first under ETag, then send SMS.
+                # If SMS fails, we remove the SENT tag so a future cron run can retry.
                 try:
-                    clean_lines = [line for line in fresh_desc.split('\n') if not line.strip().startswith(reminder_tag_prefix)]
-                    locked_desc = "\n".join(clean_lines).rstrip() + f"\n{reminder_tag_prefix}{current_start_iso}"
+                    # Remove any previous sent/lock markers for this appointment,
+                    # then write the "sent" marker exactly once.
+                    clean_lines = [
+                        line for line in fresh_desc.split('\n')
+                        if not line.strip().startswith(reminder_sent_tag_prefix)
+                        and not line.strip().startswith(reminder_lock_tag_prefix)
+                    ]
+                    locked_desc = "\n".join(clean_lines).rstrip() + f"\n{specific_sent_tag}"
                     execute_with_retry(service.events().patch(
                         calendarId=calendar_id,
                         eventId=event['id'],
@@ -1175,7 +1193,7 @@ def trigger_reminders():
                         # If another worker updated the event since our 'get', this fails with 412
                         headers={'If-Match': fresh_event.get('etag')}
                     ))
-                    print(f"DEBUG CRON: Locked event '{summary}' with reminder tag.")
+                    print(f"DEBUG CRON: Marked event '{summary}' as SMS-sent.")
                 except HttpError as e:
                     if e.resp.status == 412:
                         print(f"DEBUG CRON: Conflict detected for '{summary}'. Another worker already sent this.")
@@ -1203,7 +1221,25 @@ def trigger_reminders():
                     sent_count += 1
                     print(f"INFO: REMINDER SENT: to {phone} for '{summary}' (ID: {event['id']})")
                 else:
-                    print(f"WARNING: Lock applied but SMS failed for {summary}")
+                    # Remove SENT tag so the next cron run can retry sending.
+                    # Best effort: if removal fails, the event may become sticky "sent".
+                    print(f"WARNING: SMS failed for {summary}; removing SENT tag for retry.")
+                    try:
+                        fresh_after = execute_with_retry(service.events().get(calendarId=calendar_id, eventId=event['id']))
+                        after_desc = fresh_after.get('description', '')
+                        clean_after_lines = [
+                            line for line in after_desc.split('\n')
+                            if not line.strip().startswith(reminder_sent_tag_prefix)
+                        ]
+                        unlocked_desc = "\n".join(clean_after_lines).rstrip()
+                        execute_with_retry(service.events().patch(
+                            calendarId=calendar_id,
+                            eventId=event['id'],
+                            body={'description': unlocked_desc},
+                            headers={'If-Match': fresh_after.get('etag')}
+                        ))
+                    except Exception as e:
+                        print(f"ERROR: Failed to remove SENT tag for event {event['id']}: {e}")
 
         return jsonify({"status": "success", "reminders_sent": sent_count})
     except Exception as e:
