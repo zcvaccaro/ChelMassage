@@ -1,6 +1,7 @@
 # === Chel Massage Backend Plan ===
 import base64
 import datetime
+import html
 from datetime import timezone, timedelta
 import io
 import os
@@ -50,6 +51,11 @@ SQUARE_ACCESS_TOKEN = os.getenv("SQUARE_ACCESS_TOKEN", "").strip()
 SQUARE_LOCATION_ID = os.getenv("SQUARE_LOCATION_ID", "").strip()
 SQUARE_ENV = os.getenv("SQUARE_ENVIRONMENT", "sandbox").strip().lower()
 
+# --- Sheet Insertion Constants ---
+SHEET_INSERT_START_INDEX = 4
+SHEET_INSERT_END_INDEX = 5
+SHEET_START_ROW_REF = '5'
+
 
 square_client = Client(access_token=SQUARE_ACCESS_TOKEN, environment=SQUARE_ENV) # Square Client initialized after all env vars are loaded
 
@@ -93,13 +99,16 @@ if not os.path.exists(SERVICE_ACCOUNT_FILE):
 
 app = Flask(__name__, template_folder='templates', static_folder='static') # Flask app initialized after all global configuration is loaded
 
-# Global cache for Google API services
-_google_services = {}
+# Thread-local storage for Google API services to ensure thread safety in background tasks
+_google_service_cache = threading.local()
 _google_creds_instance = None # To store the credentials instance once loaded
 
 def _get_credentials():
-    """Loads and caches Google credentials (either user or service account)."""
     global _google_creds_instance
+    if _google_creds_instance:
+        return _google_creds_instance
+
+    """Loads and caches Google credentials (either user or service account)."""
     if _google_creds_instance:
         # If user credentials, check for validity and refresh
         if isinstance(_google_creds_instance, UserCredentials) and _google_creds_instance.expired and _google_creds_instance.refresh_token:
@@ -150,20 +159,20 @@ def _get_credentials():
 
 def get_google_service(service_name, version):
     """Unified helper to get a Google API service, caching the built service objects."""
-    global _google_services
+    if not hasattr(_google_service_cache, 'services'):
+        _google_service_cache.services = {}
 
-    cache_key = f"{service_name}-{version}"
-    if cache_key not in _google_services:
+    cache_key = f"{service_name}_{version}"
+    if cache_key not in _google_service_cache.services:
         creds = _get_credentials()
         if creds:
-            _google_services[cache_key] = build(service_name, version, credentials=creds)
+            _google_service_cache.services[cache_key] = build(service_name, version, credentials=creds)
             print(f"DEBUG: Built and cached {service_name} service.")
         else:
             print(f"ERROR: Could not get credentials to build {service_name} service.")
             return None
-    else:
-        print(f"DEBUG: Using cached {service_name} service.")
-    return _google_services.get(cache_key)
+
+    return _google_service_cache.services.get(cache_key)
 
 def get_calendar_service():
     return get_google_service('calendar', 'v3')
@@ -176,6 +185,29 @@ def get_drive_service():
 
 def get_gmail_service():
     return get_google_service('gmail', 'v1')
+
+def execute_with_retry(request, max_retries=3):
+    """Executes a Google API request with simple exponential backoff."""
+    for i in range(max_retries):
+        try:
+            return request.execute()
+        except HttpError as e:
+            if e.resp.status in [429, 500, 502, 503, 504] and i < max_retries - 1:
+                time.sleep((2 ** i) + random.random())
+                continue
+            raise
+
+def norm_email(email):
+    """Strips and lowercases email addresses for comparison."""
+    return email.strip().lower() if email else ""
+
+def safe_append_description(description, tag, content):
+    """Appends a tagged section to a description only if the tag isn't present."""
+    if not description:
+        description = ""
+    if tag in description:
+        return description
+    return f"{description.rstrip()}\n\n{tag}\n{content}".strip()
 
 def create_event(service, summary, start_time, end_time, description="", calendar_id='primary', color_id: Optional[str] = None):
     """Creates a new event on the specified calendar."""
@@ -402,7 +434,7 @@ def lookup_client():
         return jsonify({"error": "Sheets service unavailable"}), 500
 
     try:
-        search_email = identifier.lower()
+        search_email = norm_email(identifier)
         search_phone = "".join(filter(str.isdigit, identifier))
 
         # 1. Search the primary "Clients" sheet
@@ -415,7 +447,7 @@ def lookup_client():
         for row in clients_rows:
             if len(row) < 3:
                 continue
-            row_email = row[2].strip().lower()
+            row_email = norm_email(row[2])
             row_phone = "".join(filter(str.isdigit, row[3])) if len(row) > 3 else ""
 
             if (row_email == search_email) or (search_phone and row_phone == search_phone):
@@ -453,7 +485,7 @@ def lookup_client():
         for row in onsite_rows:
             if len(row) < 2:
                 continue
-            row_email = row[1].strip().lower()
+            row_email = norm_email(row[1])
             row_phone = "".join(filter(str.isdigit, row[2])) if len(row) > 2 else ""
 
             if (row_email == search_email) or (search_phone and row_phone == search_phone):
@@ -619,7 +651,7 @@ def book_appointment():
             # Retrieve existing customer and card IDs from Google Sheet
             sheets_service = get_sheets_service()
             if sheets_service:
-                normalized_email = client_email.strip().lower()
+                normalized_email = norm_email(client_email)
                 result = sheets_service.spreadsheets().values().get(
                     spreadsheetId=SPREADSHEET_ID,
                     range='Clients!A:H'
@@ -637,7 +669,7 @@ def book_appointment():
         elif source_id and client_email:
             # 1. Search for existing customer
             search_body = {
-                "query": { "filter": { "email_address": {"exact": client_email.strip().lower()} }},
+                "query": { "filter": { "email_address": {"exact": norm_email(client_email)} }},
                 "limit": 1
             }
             search_result = square_client.customers.search_customers(body=search_body)
@@ -768,10 +800,12 @@ def book_appointment():
     # Update the Calendar Event description with SOAP and Intake links
     try:
         # Fetch the event again to get the full_description we just created (containing Phone/Service)
-        current_event = service.events().get(calendarId=PRIMARY_CALENDAR_ID, eventId=calendar_event_id).execute()
+        current_event = execute_with_retry(service.events().get(calendarId=PRIMARY_CALENDAR_ID, eventId=calendar_event_id))
         latest_desc = current_event.get('description', '')
-        updated_desc = latest_desc + f"\n\n--- ADMIN: SOAP NOTE LINK ---\n<a href=\"{soap_url}\">SOAP Form</a>"
-        service.events().patch(calendarId=PRIMARY_CALENDAR_ID, eventId=calendar_event_id, body={'description': updated_desc}).execute()
+        
+        soap_tag = "--- ADMIN: SOAP NOTE LINK ---"
+        updated_desc = safe_append_description(latest_desc, soap_tag, f"<a href=\"{soap_url}\">SOAP Form</a>")
+        execute_with_retry(service.events().patch(calendarId=PRIMARY_CALENDAR_ID, eventId=calendar_event_id, body={'description': updated_desc}))
     except Exception as e:
         print(f"ERROR: Failed to update calendar event with links: {e}")
 
@@ -780,15 +814,17 @@ def book_appointment():
 
     # --- Define Async Task for Emails and Sheets ---
     def _handle_booking_background(square_customer_id, square_card_id):
+        service = get_calendar_service()
         # Update Calendar description with Square IDs for Admin reference
         if square_customer_id:
             customer_link = f"https://squareup.com/dashboard/customers/directory/customer/{square_customer_id}"
-            admin_notes = f"\n\n--- ADMIN: SQUARE INFO ---\nCustomer Profile: <a href=\"{customer_link}\">Square Card Link</a>"
+            square_tag = "--- ADMIN: SQUARE INFO ---"
+            square_content = f"Customer Profile: <a href=\"{customer_link}\">Square Card Link</a>"
             try:
                 # Fetch latest description again to include the SOAP link just added
-                latest_event = service.events().get(calendarId=PRIMARY_CALENDAR_ID, eventId=calendar_event_id).execute()
+                latest_event = execute_with_retry(service.events().get(calendarId=PRIMARY_CALENDAR_ID, eventId=calendar_event_id))
                 final_desc = latest_event.get('description', '')
-                service.events().patch(calendarId=PRIMARY_CALENDAR_ID, eventId=calendar_event_id, body={'description': final_desc + admin_notes}).execute()
+                execute_with_retry(service.events().patch(calendarId=PRIMARY_CALENDAR_ID, eventId=calendar_event_id, body={'description': safe_append_description(final_desc, square_tag, square_content)}))
             except Exception as e:
                 print(f"ERROR: Failed to update calendar event with Square IDs: {e}")
 
@@ -796,8 +832,7 @@ def book_appointment():
         try:
             sheets_service = get_sheets_service()
             if sheets_service and client_email:
-                # Normalize for comparison
-                normalized_email = client_email.strip().lower()
+                normalized_email = norm_email(client_email)
 
                 # Check for existing client
                 result = sheets_service.spreadsheets().values().get(
@@ -806,7 +841,7 @@ def book_appointment():
                 ).execute()
 
                 existing_emails = [
-                    item.strip().lower() for sublist in result.get('values', [])
+                    norm_email(item) for sublist in result.get('values', [])
                     for item in sublist if item and isinstance(item, str)
                 ]
 
@@ -832,7 +867,7 @@ def book_appointment():
                     request_body = {
                         "requests": [{
                             "insertDimension": {
-                                "range": {"sheetId": client_sheet_id, "dimension": "ROWS", "startIndex": 4, "endIndex": 5},
+                                "range": {"sheetId": client_sheet_id, "dimension": "ROWS", "startIndex": SHEET_INSERT_START_INDEX, "endIndex": SHEET_INSERT_END_INDEX},
                                 "inheritFromBefore": False
                             }
                         }]
@@ -841,7 +876,7 @@ def book_appointment():
 
                     sheets_service.spreadsheets().values().update(
                         spreadsheetId=SPREADSHEET_ID,
-                        range='Clients!A5',
+                        range=f'Clients!A{SHEET_START_ROW_REF}',
                         valueInputOption='USER_ENTERED',
                         body={'values': [client_row]}
                     ).execute()
@@ -850,7 +885,7 @@ def book_appointment():
                     # Find the row index for this email to update the Card ID
                     target_row_index = -1
                     for idx, row_val in enumerate(result.get('values', [])):
-                        if row_val and row_val[0].strip().lower() == normalized_email:
+                        if row_val and norm_email(row_val[0]) == normalized_email:
                             target_row_index = idx + 1 # Sheets is 1-indexed
                             break
 
@@ -879,6 +914,7 @@ def book_appointment():
         print(f"BACKGROUND_TASK: Starting email delivery for: {client_email}")
         if client_email:
             email_subject = "Your Massage Appointment is Confirmed!"
+            esc = html.escape
             # (Existing email body logic stays exactly as is)
             email_body_html = f"""
             <html>
@@ -891,7 +927,7 @@ def book_appointment():
                 </style>
             </head>
             <body>
-            <p>Hi {client_first_name},</p>
+            <p>Hi {esc(client_first_name)},</p>
             <p>Thank you for booking your appointment! We look forward to seeing you on <strong>{booking_date_formatted}</strong> at <strong>{booking_time_formatted}</strong>.</p>
             <p>As a next step, if you have not already, please complete our secure client intake form by clicking the link below:</p>
             <p><a href="{intake_url}" class="email-cta" style="display: inline-block; padding: 12px 24px; border: 1px solid #000; background-color: #000; color: #fff; font-size: 1rem; font-weight: bold; text-decoration: none; border-radius: 50px; transition: background-color 0.3s ease, color 0.3s ease;">Complete Intake Form</a></p>
@@ -908,15 +944,16 @@ def book_appointment():
         print("BACKGROUND_TASK: Starting to send admin notification email.")
         try:
             admin_email = SENDER_EMAIL
-            admin_subject = f"New Booking: {summary}"
+            esc = html.escape
+            admin_subject = f"New Booking: {esc(summary)}"
             admin_body_html = f"""
             <p><strong>You have a new booking!</strong></p>
-            <p><strong>Client:</strong> {client_info.get('first_name')} {client_info.get('last_name')}</p>
-            <p><strong>Service:</strong> {summary}</p>
+            <p><strong>Client:</strong> {esc(client_info.get('first_name'))} {esc(client_info.get('last_name'))}</p>
+            <p><strong>Service:</strong> {esc(summary)}</p>
             <p><strong>When:</strong> {local_start_time.strftime('%A, %B %d, %Y at %I:%M %p')}</p>
-            <p><strong>Client Email:</strong> {client_info.get('email')}</p>
-            <p><strong>Client Phone:</strong> {client_info.get('phone')}</p>
-            <p><strong>Comments:</strong> {data.get('description', '').replace('Comments: ', '')}</p>
+            <p><strong>Client Email:</strong> {esc(client_info.get('email', 'N/A'))}</p>
+            <p><strong>Client Phone:</strong> {esc(client_info.get('phone', 'N/A'))}</p>
+            <p><strong>Comments:</strong> {esc(data.get('description', '').replace('Comments: ', ''))}</p>
             <p>The event has been added to your Google Calendar.</p>
             """
             admin_email_sent, _ = send_email(admin_email, admin_subject, admin_body_html)
@@ -928,7 +965,7 @@ def book_appointment():
             print(f"CRITICAL: Failed to send admin notification email for booking. Error: {e}")
 
     # --- Start Background Thread ---
-    threading.Thread(target=_handle_booking_background, args=(square_customer_id, square_card_id)).start()
+    threading.Thread(target=_handle_booking_background, name="booking_bg", args=(square_customer_id, square_card_id)).start()
 
     return jsonify({
         "message": "Booking successful!",
@@ -1089,15 +1126,15 @@ def trigger_reminders():
 
                 # 2. ATOMIC LOCK: Re-fetch the event to check for a tag added by another worker
                 try:
-                    fresh_event = service.events().get(calendarId=calendar_id, eventId=event['id']).execute()
+                    fresh_event = execute_with_retry(service.events().get(calendarId=calendar_id, eventId=event['id']))
                     fresh_desc = fresh_event.get('description', '')
                     
                     # Specific tag check: Only skip if a reminder was sent for THIS start time
                     if specific_tag in fresh_desc:
-                        print(f"DEBUG CRON: Skipping '{summary}' - Reminder already sent for {current_start_iso}.")
+                        print(f"DEBUG CRON: Skipping '{summary}' (ID: {event['id']}) - Reminder already sent for {current_start_iso}.")
                         continue
                 except Exception as e:
-                    print(f"ERROR: Failed to verify status for {event['id']}: {e}")
+                    print(f"ERROR: Failed to verify status for event {event['id']}: {e}")
                     continue
 
                 # Parse metadata
@@ -1119,21 +1156,25 @@ def trigger_reminders():
 
                 start_dt = datetime.datetime.fromisoformat(current_start_iso.replace('Z', '+00:00'))
 
+                TARGET_HOURS = 26
+                TOLERANCE = 1.0
+
                 hours_until_appt = (start_dt - now).total_seconds() / 3600
-                if not (25 <= hours_until_appt <= 27):
+
+                if abs(hours_until_appt - TARGET_HOURS) > TOLERANCE:
                     continue
 
                 # 3. APPLY LOCK: Patch description using ETags for optimistic concurrency
                 try:
                     clean_lines = [line for line in fresh_desc.split('\n') if not line.strip().startswith(reminder_tag_prefix)]
                     locked_desc = "\n".join(clean_lines).rstrip() + f"\n{reminder_tag_prefix}{current_start_iso}"
-                    service.events().patch(
+                    execute_with_retry(service.events().patch(
                         calendarId=calendar_id,
                         eventId=event['id'],
                         body={'description': locked_desc},
                         # If another worker updated the event since our 'get', this fails with 412
                         headers={'If-Match': fresh_event.get('etag')}
-                    ).execute()
+                    ))
                     print(f"DEBUG CRON: Locked event '{summary}' with reminder tag.")
                 except HttpError as e:
                     if e.resp.status == 412:
@@ -1160,7 +1201,7 @@ def trigger_reminders():
 
                 if send_sms(phone, msg_body):
                     sent_count += 1
-                    print(f"INFO: REMINDER SENT: to {phone} for {summary}")
+                    print(f"INFO: REMINDER SENT: to {phone} for '{summary}' (ID: {event['id']})")
                 else:
                     print(f"WARNING: Lock applied but SMS failed for {summary}")
 
@@ -1231,12 +1272,12 @@ def _handle_intake_submission_background(data, pdf_output):
                 file_metadata['parents'] = [parent_id]
 
             media = MediaIoBaseUpload(io.BytesIO(pdf_output), mimetype='application/pdf')
-            uploaded_file = drive_service.files().create(
+            uploaded_file = execute_with_retry(drive_service.files().create(
                 body=file_metadata,
                 media_body=media,
                 supportsAllDrives=True, # Required for Workspace Shared Drives
                 fields='id, webViewLink'
-            ).execute()
+            ))
 
             drive_link = uploaded_file.get('webViewLink')
             print(f"BACKGROUND_TASK: PDF uploaded to Drive successfully: {drive_link}")
@@ -1250,16 +1291,16 @@ def _handle_intake_submission_background(data, pdf_output):
             calendar_service = get_calendar_service()
             if calendar_service:
                 # Fetch current description to append, ensuring we don't wipe out SOAP or Square info
-                event = calendar_service.events().get(calendarId=PRIMARY_CALENDAR_ID, eventId=calendar_event_id).execute()
+                event = execute_with_retry(calendar_service.events().get(calendarId=PRIMARY_CALENDAR_ID, eventId=calendar_event_id))
                 latest_desc = event.get('description', '')
 
-                intake_note = f"\n\n--- ADMIN: INTAKE FORM LINK ---\n<a href=\"{drive_link}\">Intake Form</a>"
-
-                calendar_service.events().patch(
+                intake_tag = "--- ADMIN: INTAKE FORM LINK ---"
+                intake_content = f"<a href=\"{drive_link}\">Intake Form</a>"
+                execute_with_retry(calendar_service.events().patch(
                     calendarId=PRIMARY_CALENDAR_ID,
                     eventId=calendar_event_id,
-                    body={'description': latest_desc + intake_note}
-                ).execute()
+                    body={'description': safe_append_description(latest_desc, intake_tag, intake_content)}
+                ))
                 print(f"BACKGROUND_TASK: Calendar event {calendar_event_id} updated with direct PDF link.")
         except Exception as cal_e:
             print(f"ERROR (background): Failed to update calendar event with PDF link: {cal_e}")
@@ -1290,7 +1331,7 @@ def _handle_intake_submission_background(data, pdf_output):
                 request_body = {
                     "requests": [{
                         "insertDimension": {
-                            "range": {"sheetId": intake_sheet_id, "dimension": "ROWS", "startIndex": 4, "endIndex": 5},
+                            "range": {"sheetId": intake_sheet_id, "dimension": "ROWS", "startIndex": SHEET_INSERT_START_INDEX, "endIndex": SHEET_INSERT_END_INDEX},
                             "inheritFromBefore": False
                         }
                     }]
@@ -1300,7 +1341,7 @@ def _handle_intake_submission_background(data, pdf_output):
                 # Write the new intake data into the now-empty Row 2
                 sheets_service.spreadsheets().values().update(
                     spreadsheetId=SPREADSHEET_ID,
-                    range='Intake Forms!A5',
+                    range=f'Intake Forms!A{SHEET_START_ROW_REF}',
                     valueInputOption='USER_ENTERED',
                     body={'values': [intake_row]}
                 ).execute()
@@ -1312,7 +1353,7 @@ def _handle_intake_submission_background(data, pdf_output):
     try:
         client_email = data.get('email')
         if sheets_service and client_email:
-            normalized_email = client_email.strip().lower()
+            normalized_email = norm_email(client_email)
             # Fetch all emails from the Clients sheet (Column C)
             client_data_result = sheets_service.spreadsheets().values().get(
                 spreadsheetId=SPREADSHEET_ID,
@@ -1323,7 +1364,7 @@ def _handle_intake_submission_background(data, pdf_output):
             # Find the row index where the email matches
             target_row_index = -1
             for idx, row_val in enumerate(client_rows):
-                if row_val and row_val[0].strip().lower() == normalized_email:
+                if row_val and norm_email(row_val[0]) == normalized_email:
                     target_row_index = idx + 1 # Sheets is 1-indexed
                     break
 
@@ -1343,12 +1384,13 @@ def _handle_intake_submission_background(data, pdf_output):
     # --- 4. Send Email to Admin ---
     try:
         admin_email = SENDER_EMAIL
-        email_subject = f"New Intake Form Submitted by {client_name}"
+        esc = html.escape
+        email_subject = f"New Intake Form Submitted by {esc(client_name)}"
         email_body_html = f"""
         <p>A new client intake form has been submitted.</p>
-        <p><strong>Client:</strong> {client_name}</p>
-        <p><strong>Email:</strong> {data.get('email', 'N/A')}</p>
-        <p><strong>Original Booking:</strong> {data.get('bookingDate', 'N/A')} at {data.get('bookingTime', 'N/A')}</p>
+        <p><strong>Client:</strong> {esc(client_name)}</p>
+        <p><strong>Email:</strong> {esc(data.get('email', 'N/A'))}</p>
+        <p><strong>Original Booking:</strong> {esc(data.get('bookingDate', 'N/A'))} at {esc(data.get('bookingTime', 'N/A'))}</p>
         <p><strong>Google Drive Backup:</strong> <a href="{drive_link}">View PDF in Drive</a></p>
         """
 
@@ -1489,6 +1531,7 @@ def submit_intake():
         # --- Start Background Tasks ---
         threading.Thread(
             target=_handle_intake_submission_background,
+            name="intake_bg",
             kwargs={'data': data, 'pdf_output': pdf_output},
         ).start()
 
@@ -1509,7 +1552,7 @@ def request_onsite():
         return jsonify({"error": "Invalid JSON payload."}), 400
 
     # Start the background task to send emails
-    threading.Thread(target=_handle_onsite_request_background, args=(data,)).start()
+    threading.Thread(target=_handle_onsite_request_background, name="onsite_bg", args=(data,)).start()
 
     return jsonify({"message": "On-site request submitted successfully."}), 200
 
@@ -1524,7 +1567,8 @@ def _handle_onsite_request_background(data):
     # 1. Notify Admin
     try:
         admin_email = SENDER_EMAIL
-        admin_subject = f"New On-Site Request: {full_name}"
+        esc = html.escape
+        admin_subject = f"New On-Site Request: {esc(full_name)}"
 
         # Build requested times summary
         times = []
@@ -1532,7 +1576,7 @@ def _handle_onsite_request_background(data):
             d = data.get(f'date{i}')
             t = data.get(f'time{i}')
             if d and t:
-                times.append(f"<li>{d} at {t}</li>")
+                times.append(f"<li>{esc(d)} at {esc(t)}</li>")
         times_html = f"<ul>{''.join(times)}</ul>" if times else "<p>No specific times provided.</p>"
 
         client_services_html = ""
@@ -1540,21 +1584,21 @@ def _handle_onsite_request_background(data):
         for i in range(1, num_clients + 1):
             client_name_i = data.get(f'clientName_{i}', f'Client {i}')
             treatment_type_i = data.get(f'treatmentType_{i}', 'Not specified')
-            client_services_html += f"<li><strong>{client_name_i}:</strong> {treatment_type_i}</li>"
-            client_services_list.append(f"{client_name_i} ({treatment_type_i})")
+            client_services_html += f"<li><strong>{esc(client_name_i)}:</strong> {esc(treatment_type_i)}</li>"
+            client_services_list.append(f"{esc(client_name_i)} ({esc(treatment_type_i)})")
 
         admin_body_html = f"""
         <h3>New On-Site Treatment Request</h3>
-        <p><strong>Client:</strong> {full_name}</p>
+        <p><strong>Client:</strong> {esc(full_name)}</p>
         <p><strong>Number of Clients:</strong> {num_clients}</p>
         <p><strong>Services Requested:</strong><ul>{client_services_html}</ul></p>
-        <p><strong>Email:</strong> {client_email}</p>
-        <p><strong>Phone:</strong> {data.get('phone')}</p>
-        <p><strong>Address:</strong> {data.get('address')}</p>
+        <p><strong>Email:</strong> {esc(client_email)}</p>
+        <p><strong>Phone:</strong> {esc(data.get('phone'))}</p>
+        <p><strong>Address:</strong> {esc(data.get('address'))}</p>
         <p><strong>Requested Times:</strong></p>
         {times_html}
-        <p><strong>Preferred Contact:</strong> {data.get('contactMethod')}</p>
-        <p><strong>Additional Details:</strong> {data.get('details') or 'None'}</p>
+        <p><strong>Preferred Contact:</strong> {esc(data.get('contactMethod'))}</p>
+        <p><strong>Additional Details:</strong> {esc(data.get('details') or 'None')}</p>
         """
         send_email(admin_email, admin_subject, admin_body_html)
         print(f"BACKGROUND_TASK: Admin notified of on-site request from {full_name}")
@@ -1564,6 +1608,7 @@ def _handle_onsite_request_background(data):
     # 2. Confirm to Client
     if client_email:
         try:
+            esc = html.escape
             client_subject = "Your On-Site Treatment Request - Chelsea Vaccaro"
 
             # Construct a human-friendly list of dates
@@ -1579,10 +1624,10 @@ def _handle_onsite_request_background(data):
             all_client_services_summary = ", ".join(client_services_list)
 
             client_body_html = f"""
-            <p>Hi {first_name},</p>
+            <p>Hi {esc(first_name)},</p>
             <p>Thank you for requesting an on-site treatment with Chelsea Vaccaro Therapeutic Massage!</p>
-            <p>We have received your request for <strong>{all_client_services_summary}</strong> at <strong>{data.get('address')}</strong> on <strong>{times_sentence}</strong>.</p>
-            <p>We will check our schedules and reach out to you via <strong>{data.get('contactMethod').lower()}</strong> as soon as possible with options and pricing to finalize your appointment.</p>
+            <p>We have received your request for <strong>{all_client_services_summary}</strong> at <strong>{esc(data.get('address'))}</strong> on <strong>{esc(times_sentence)}</strong>.</p>
+            <p>We will check our schedules and reach out to you via <strong>{esc(data.get('contactMethod').lower())}</strong> as soon as possible with options and pricing to finalize your appointment.</p>
             <p>We look forward to helping you heal and refresh in the comfort of your home!</p>
             <p>High Five!<br>Chelsea Vaccaro <br> Therapeutic Massage</p>
             """
@@ -1628,7 +1673,7 @@ def _handle_onsite_request_background(data):
                 request_body = {
                     "requests": [{
                         "insertDimension": {
-                            "range": {"sheetId": sheet_id, "dimension": "ROWS", "startIndex": 4, "endIndex": 5},
+                            "range": {"sheetId": sheet_id, "dimension": "ROWS", "startIndex": SHEET_INSERT_START_INDEX, "endIndex": SHEET_INSERT_END_INDEX},
                             "inheritFromBefore": False
                         }
                     }]
@@ -1638,7 +1683,7 @@ def _handle_onsite_request_background(data):
                 # Write the new request data into Row 2
                 sheets_service.spreadsheets().values().update(
                     spreadsheetId=SPREADSHEET_ID,
-                    range=f"'{target_tab}'!A5",
+                    range=f"'{target_tab}'!A{SHEET_START_ROW_REF}",
                     valueInputOption='USER_ENTERED',
                     body={'values': [row_data]}
                 ).execute()
