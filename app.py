@@ -1084,7 +1084,8 @@ def _send_textbee_sms(phone_number, message_body):
     }
     headers = {"x-api-key": api_key}
 
-    print(f"DEBUG: Attempting SMS to {clean_phone} via TextBee")
+    print(f"DEBUG: TextBee Payload: {payload}")
+    print(f"DEBUG: Attempting SMS to {clean_phone} via TextBee (Device: {device_id})")
     last_error = "Failed after retries"
     # Implement a single retry for transient failures
     for attempt in range(2): # 0 is first try, 1 is retry
