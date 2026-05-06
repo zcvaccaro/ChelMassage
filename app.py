@@ -1042,8 +1042,9 @@ def _send_textbee_sms(phone_number, message_body):
     url = f"https://api.textbee.dev/api/v1/gateway/devices/{device_id}/send-sms"
 
     if not api_key or not device_id:
-        print("SMS ERROR: TEXTBEE_API_KEY or DEVICE_ID is not set.")
-        return False
+        error_msg = "TEXTBEE_API_KEY or DEVICE_ID is not set."
+        print(f"SMS ERROR: {error_msg}")
+        return False, error_msg
 
     # Normalize phone number (E.164)
     digits = "".join(filter(str.isdigit, phone_number))
@@ -1055,6 +1056,7 @@ def _send_textbee_sms(phone_number, message_body):
     }
     headers = {"x-api-key": api_key}
 
+    last_error = "Failed after retries"
     # Implement a single retry for transient failures
     for attempt in range(2): # 0 is first try, 1 is retry
         try:
@@ -1065,16 +1067,18 @@ def _send_textbee_sms(phone_number, message_body):
             print(f"DEBUG: TextBee Response Body: {r.text}")
 
             if r.status_code == 200:
-                return True
+                return True, None
             else:
-                print(f"SMS ERROR: TextBee API failure. Status: {r.status_code}, Response: {r.text}")
+                last_error = f"TextBee API failure. Status: {r.status_code}, Response: {r.text}"
+                print(f"SMS ERROR: {last_error}")
         except requests.exceptions.RequestException as e:
-            print(f"SMS ERROR: Request failed for {clean_phone} (Attempt {attempt+1}): {e}")
+            last_error = str(e)
+            print(f"SMS ERROR: Request failed for {clean_phone} (Attempt {attempt+1}): {last_error}")
 
         if attempt == 0:
             print("INFO: Retrying SMS once...")
 
-    return False
+    return False, last_error
 
 def send_sms(phone_number, message_body):
     """Unified SMS wrapper that routes to the configured provider. Returns (True, None) on success, (False, error_message) on failure."""
@@ -1083,8 +1087,9 @@ def send_sms(phone_number, message_body):
     if provider == "textbee":
         return _send_textbee_sms(phone_number, message_body)
 
-    print(f"SMS disabled or unsupported provider: {provider}")
-    return False
+    msg = f"SMS disabled or unsupported provider: {provider}"
+    print(msg)
+    return False, msg
  
 @app.route('/api/cron/reminders', methods=['GET']) # This is the cron job endpoint
 def trigger_reminders():
