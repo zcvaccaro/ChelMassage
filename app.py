@@ -822,7 +822,7 @@ def book_appointment():
         # Fetch the event again to get the full_description we just created (containing Phone/Service)
         current_event = execute_with_retry(service.events().get(calendarId=PRIMARY_CALENDAR_ID, eventId=calendar_event_id))
         latest_desc = current_event.get('description', '')
-        
+
         soap_tag = "--- ADMIN: SOAP NOTE LINK ---"
         updated_desc = safe_append_description(latest_desc, soap_tag, f"<a href=\"{soap_url}\">SOAP Form</a>")
         execute_with_retry(service.events().patch(calendarId=PRIMARY_CALENDAR_ID, eventId=calendar_event_id, body={'description': updated_desc}))
@@ -1077,7 +1077,7 @@ def _send_textbee_sms(phone_number, message_body):
     return False
 
 def send_sms(phone_number, message_body):
-    """Unified SMS wrapper that routes to the configured provider."""
+    """Unified SMS wrapper that routes to the configured provider. Returns (True, None) on success, (False, error_message) on failure."""
     provider = os.getenv("SMS_PROVIDER", "none").strip().lower()
 
     if provider == "textbee":
@@ -1085,7 +1085,7 @@ def send_sms(phone_number, message_body):
 
     print(f"SMS disabled or unsupported provider: {provider}")
     return False
-
+ 
 @app.route('/api/cron/reminders', methods=['GET']) # This is the cron job endpoint
 def trigger_reminders():
     """Cron endpoint to send SMS reminders 26 hours before appointments."""
@@ -1253,10 +1253,11 @@ def trigger_reminders():
                 )
 
                 debug_counts["sms_attempted"] += 1
-                if send_sms(phone, msg_body):
+                sms_success, sms_error_message = send_sms(phone, msg_body)
+                if sms_success:
                     sent_count += 1
                     print(f"INFO: REMINDER SENT: to {phone} for '{summary}' (ID: {event['id']})")
-                else:
+                else: # SMS failed
                     debug_counts["sms_failed"] += 1
                     # Remove SENT tag so the next cron run can retry sending.
                     # Best effort: if removal fails, the event may become sticky "sent".
@@ -1278,6 +1279,7 @@ def trigger_reminders():
                         )
                     except Exception as e:
                         print(f"ERROR: Failed to remove SENT tag for event {event['id']}: {e}")
+                    print(f"WARNING: SMS failed for '{summary}' (ID: {event['id']}) with error: {sms_error_message}")
 
         response_payload = {"status": "success", "reminders_sent": sent_count}
         if debug_mode:
