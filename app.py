@@ -1061,7 +1061,22 @@ def _send_textbee_sms(phone_number, message_body):
 
     # Normalize phone number (E.164)
     digits = "".join(filter(str.isdigit, phone_number))
-    clean_phone = "+" + digits if len(digits) > 10 else "+1" + digits
+
+    # Ensure we have exactly 10 digits for US numbers, or 11 if it already has the '1'
+    if len(digits) == 10:
+        clean_phone = "+1" + digits
+    elif len(digits) == 11 and digits.startswith("1"):
+        clean_phone = "+" + digits
+    elif len(digits) > 11:
+        # Likely an international number already containing a country code
+        clean_phone = "+" + digits
+    elif len(digits) == 9:
+        # Handle the specific case seen in your test: 845330406 is 9 digits.
+        err = f"Invalid phone number: {phone_number} is only 9 digits. US numbers must be 10 digits."
+        print(f"SMS ERROR: {err}")
+        return False, err
+    else:
+        return False, f"Phone number too short ({len(digits)} digits). Must be at least 10."
 
     payload = {
         "to": clean_phone,
@@ -1069,6 +1084,7 @@ def _send_textbee_sms(phone_number, message_body):
     }
     headers = {"x-api-key": api_key}
 
+    print(f"DEBUG: Attempting SMS to {clean_phone} via TextBee")
     last_error = "Failed after retries"
     # Implement a single retry for transient failures
     for attempt in range(2): # 0 is first try, 1 is retry
