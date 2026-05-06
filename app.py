@@ -1093,7 +1093,7 @@ def _send_textbee_sms(phone_number, message_body):
         return False, f"Phone number too short ({len(digits)} digits). Must be at least 10."
 
     payload = {
-        "to": clean_phone,
+        "recipients": [clean_phone],
         "message": message_body
     }
     headers = {"x-api-key": api_key}
