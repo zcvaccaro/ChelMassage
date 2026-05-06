@@ -1076,7 +1076,7 @@ def _send_textbee_sms(phone_number, message_body):
 
     # Normalize phone number (E.164)
     digits = "".join(filter(str.isdigit, phone_number))
-    
+
     # TextBee V1 API requires the '+' prefix for E.164 formatting.
     if len(digits) == 10:
         clean_phone = "+1" + digits
@@ -1185,11 +1185,12 @@ def trigger_reminders():
             ).execute()
 
             for event in res.get('items', []):
-                debug_counts["events_seen"] += 1
                 summary = event.get('summary', '')
                 if summary.lower().strip() == 'open for bookings':
                     debug_counts["skipped_open_for_bookings"] += 1
                     continue
+
+                debug_counts["events_seen"] += 1
 
                 # Smart logic: Skip if a reminder was already sent for THIS specific start time
                 current_start_iso = event['start'].get('dateTime')
@@ -1234,7 +1235,8 @@ def trigger_reminders():
                 duration_match = re.search(r'duration:\s*([^<\n\r]+)', fresh_desc, re.IGNORECASE)
                 service_match = re.search(r'service:\s*([^<\n\r]+)', fresh_desc, re.IGNORECASE)
 
-                if phone_match: phone = phone_match.group(1).strip()
+                if phone_match:
+                    phone = phone_match.group(1).strip()
                 duration = duration_match.group(1).strip() if duration_match else ""
                 service_type = service_match.group(1).strip() if service_match else ""
 
