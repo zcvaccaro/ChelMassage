@@ -1136,6 +1136,7 @@ def trigger_reminders():
             "mark_sent_conflicts": 0,
             "sms_attempted": 0,
             "sms_failed": 0,
+            "last_error": None
         }
 
         for calendar_id in list(set(CALENDAR_IDS)): # Ensure unique calendar IDs
@@ -1276,6 +1277,7 @@ def trigger_reminders():
                     print(f"INFO: REMINDER SENT: to {phone} for '{summary}' (ID: {event['id']})")
                 else: # SMS failed
                     debug_counts["sms_failed"] += 1
+                    debug_counts["last_error"] = sms_error_message
                     # Remove SENT tag so the next cron run can retry sending.
                     # Best effort: if removal fails, the event may become sticky "sent".
                     print(f"WARNING: SMS failed for {summary}; removing SENT tag for retry.")
