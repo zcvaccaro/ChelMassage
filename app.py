@@ -1101,20 +1101,24 @@ def _send_textbee_sms(phone_number, message_body):
     print(f"DEBUG: TextBee Payload: {payload}")
     print(f"DEBUG: Attempting SMS to {clean_phone} via TextBee (Device: {device_id})")
     last_error = "Failed after retries"
-    # Implement a single retry for transient failures
+    # Implement a single retry for transient network failures (timeouts/connection errors)
     for attempt in range(2): # 0 is first try, 1 is retry
         try:
             r = requests.post(url, json=payload, headers=headers, timeout=15)
 
             # Log response for debugging
             print(f"DEBUG: TextBee Response Status: {r.status_code}")
-            print(f"DEBUG: TextBee Response Body: {r.text}")
 
-            if r.status_code == 200:
+            # TextBee V1 returns 201 when a message is successfully queued
+            if r.status_code in [200, 201]:
+                print(f"DEBUG: TextBee Success. Body: {r.text}")
                 return True, None
             else:
                 last_error = f"TextBee API failure. Status: {r.status_code}, Response: {r.text}"
                 print(f"SMS ERROR: {last_error}")
+                # Do not retry for client errors (4xx) like Unauthorized or Invalid Recipients
+                if 400 <= r.status_code < 500:
+                    return False, last_error
         except requests.exceptions.RequestException as e:
             last_error = str(e)
             print(f"SMS ERROR: Request failed for {clean_phone} (Attempt {attempt+1}): {last_error}")
