@@ -1103,10 +1103,23 @@ def trigger_reminders():
         print("CRON ERROR: Google Calendar service unavailable. Cannot fetch events for reminders.")
         return jsonify({"error": "Google Calendar service unavailable"}), 500
 
+    debug_mode = request.args.get('debug', '').lower() in ('1', 'true', 'yes')
+
     try:
         sent_count = 0
         local_tz = ZoneInfo(LOCAL_TIMEZONE)
         processed_keys = set() # Prevent duplicate sends for synced calendars
+        debug_counts = {
+            "events_seen": 0,
+            "skipped_open_for_bookings": 0,
+            "skipped_all_day": 0,
+            "skipped_already_sent": 0,
+            "skipped_no_phone": 0,
+            "skipped_outside_time_window": 0,
+            "mark_sent_conflicts": 0,
+            "sms_attempted": 0,
+            "sms_failed": 0,
+        }
 
         for calendar_id in list(set(CALENDAR_IDS)): # Ensure unique calendar IDs
             res = service.events().list(
@@ -1118,13 +1131,16 @@ def trigger_reminders():
             ).execute()
 
             for event in res.get('items', []):
+                debug_counts["events_seen"] += 1
                 summary = event.get('summary', '')
                 if summary.lower().strip() == 'open for bookings':
+                    debug_counts["skipped_open_for_bookings"] += 1
                     continue
 
                 # Smart logic: Skip if a reminder was already sent for THIS specific start time
                 current_start_iso = event['start'].get('dateTime')
                 if not current_start_iso:
+                    debug_counts["skipped_all_day"] += 1
                     continue # Skip all-day events
 
                 # Normalize ISO strings to ensure reliable comparison
@@ -1150,6 +1166,7 @@ def trigger_reminders():
 
                     # Skip if a reminder was already sent for THIS start time
                     if specific_sent_tag in fresh_desc:
+                        debug_counts["skipped_already_sent"] += 1
                         print(f"DEBUG CRON: Skipping '{summary}' (ID: {event['id']}) - Reminder already sent for {current_start_iso}.")
                         continue
                 except Exception as e:
@@ -1172,6 +1189,7 @@ def trigger_reminders():
                         service_type = line[8:].strip()
 
                 if not phone:
+                    debug_counts["skipped_no_phone"] += 1
                     print(f"DEBUG CRON: Skipping '{summary}' (ID: {event['id']}) - no phone metadata found.")
                     continue
 
@@ -1183,6 +1201,7 @@ def trigger_reminders():
                 hours_until_appt = (start_dt - now).total_seconds() / 3600
 
                 if abs(hours_until_appt - TARGET_HOURS) > TOLERANCE:
+                    debug_counts["skipped_outside_time_window"] += 1
                     print(
                         f"DEBUG CRON: Skipping '{summary}' (ID: {event['id']}) - "
                         f"hours_until_appt={hours_until_appt:.2f}, target={TARGET_HOURS}±{TOLERANCE}."
@@ -1211,6 +1230,7 @@ def trigger_reminders():
                     print(f"DEBUG CRON: Marked event '{summary}' as SMS-sent.")
                 except HttpError as e:
                     if e.resp.status == 412:
+                        debug_counts["mark_sent_conflicts"] += 1
                         print(f"DEBUG CRON: Conflict detected for '{summary}'. Another worker already sent this.")
                         continue
                     print(f"ERROR: Failed to lock event {event['id']}: {e}")
@@ -1232,10 +1252,12 @@ def trigger_reminders():
                     "within your booking confirmation email. I look forward to seeing you! -Chelsea"
                 )
 
+                debug_counts["sms_attempted"] += 1
                 if send_sms(phone, msg_body):
                     sent_count += 1
                     print(f"INFO: REMINDER SENT: to {phone} for '{summary}' (ID: {event['id']})")
                 else:
+                    debug_counts["sms_failed"] += 1
                     # Remove SENT tag so the next cron run can retry sending.
                     # Best effort: if removal fails, the event may become sticky "sent".
                     print(f"WARNING: SMS failed for {summary}; removing SENT tag for retry.")
@@ -1257,7 +1279,10 @@ def trigger_reminders():
                     except Exception as e:
                         print(f"ERROR: Failed to remove SENT tag for event {event['id']}: {e}")
 
-        return jsonify({"status": "success", "reminders_sent": sent_count})
+        response_payload = {"status": "success", "reminders_sent": sent_count}
+        if debug_mode:
+            response_payload["debug"] = debug_counts
+        return jsonify(response_payload)
     except Exception as e:
         print(f"CRON ERROR: {e}")
         return jsonify({"error": str(e)}), 500
