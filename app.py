@@ -306,17 +306,29 @@ def send_email(receiver_email, subject, body_html, attachment_data=None, attachm
 @app.before_request
 def log_request_info():
     """Logs every single incoming request to help debug reachability issues."""
-    protocol = request.headers.get('X-Forwarded-Proto', 'http')
+    raw_proto = request.headers.get('X-Forwarded-Proto', 'http')
+    protocol = raw_proto.split(',')[0].strip().lower()
     host = request.headers.get('Host', 'unknown-host').lower()
 
-    app.logger.debug(f"ACCESS LOG | {protocol}://{host}{request.path} | IP: {request.remote_addr} | Agent: {request.user_agent}")
-    print(f"DEBUG ACCESS: {protocol}://{host}{request.path} | IP: {request.remote_addr} | Agent: {request.user_agent}")
+    # Determine if we need to redirect for canonical host or HTTPS
+    should_redirect = False
+    new_host = host
 
-    # Canonical Redirect: Force www to non-www for consistency
+    # 1. Force non-www (canonical domain)
     if host.startswith('www.'):
         new_host = host[4:]
-        # Construct the new URL maintaining protocol and path (rstrip handles empty query strings)
-        new_url = f"{protocol}://{new_host}{request.full_path.rstrip('?')}"
+        should_redirect = True
+
+    # 2. Force HTTPS in production (ignore localhost for development)
+    is_local = '127.0.0.1' in request.remote_addr or 'localhost' in host
+    if protocol == 'http' and not is_local:
+        should_redirect = True
+
+    if should_redirect:
+        # Build target URL. request.full_path includes leading / and query string.
+        target_path = request.full_path.rstrip('?')
+        new_url = f"https://{new_host}{target_path}"
+        print(f"REDIRECTING: {protocol}://{host} -> {new_url}")
         return redirect(new_url, code=301)
 
 @app.route('/favicon.ico')
