@@ -197,6 +197,17 @@ def execute_with_retry(request, max_retries=3):
                 continue
             raise
 
+def patch_event_description_with_etag(service, calendar_id, event_id, description, etag):
+    """Patch a Calendar event description with optimistic concurrency (If-Match ETag)."""
+    req = service.events().patch(
+        calendarId=calendar_id,
+        eventId=event_id,
+        body={'description': description}
+    )
+    # googleapiclient patch() does not accept a `headers=` kwarg directly.
+    req.headers['If-Match'] = etag
+    return execute_with_retry(req)
+
 def parse_iso_datetime(value: Optional[str]) -> datetime.datetime:
     """Parse ISO-8601 datetimes reliably, including trailing `Z` (UTC)."""
     if not value:
@@ -1186,13 +1197,13 @@ def trigger_reminders():
                         and not line.strip().startswith(reminder_lock_tag_prefix)
                     ]
                     locked_desc = "\n".join(clean_lines).rstrip() + f"\n{specific_sent_tag}"
-                    execute_with_retry(service.events().patch(
-                        calendarId=calendar_id,
-                        eventId=event['id'],
-                        body={'description': locked_desc},
-                        # If another worker updated the event since our 'get', this fails with 412
-                        headers={'If-Match': fresh_event.get('etag')}
-                    ))
+                    patch_event_description_with_etag(
+                        service=service,
+                        calendar_id=calendar_id,
+                        event_id=event['id'],
+                        description=locked_desc,
+                        etag=fresh_event.get('etag')
+                    )
                     print(f"DEBUG CRON: Marked event '{summary}' as SMS-sent.")
                 except HttpError as e:
                     if e.resp.status == 412:
@@ -1232,12 +1243,13 @@ def trigger_reminders():
                             if not line.strip().startswith(reminder_sent_tag_prefix)
                         ]
                         unlocked_desc = "\n".join(clean_after_lines).rstrip()
-                        execute_with_retry(service.events().patch(
-                            calendarId=calendar_id,
-                            eventId=event['id'],
-                            body={'description': unlocked_desc},
-                            headers={'If-Match': fresh_after.get('etag')}
-                        ))
+                        patch_event_description_with_etag(
+                            service=service,
+                            calendar_id=calendar_id,
+                            event_id=event['id'],
+                            description=unlocked_desc,
+                            etag=fresh_after.get('etag')
+                        )
                     except Exception as e:
                         print(f"ERROR: Failed to remove SENT tag for event {event['id']}: {e}")
 
