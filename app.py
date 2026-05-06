@@ -1122,8 +1122,6 @@ def trigger_reminders():
                 if summary.lower().strip() == 'open for bookings':
                     continue
 
-                desc = event.get('description', '')
-
                 # Smart logic: Skip if a reminder was already sent for THIS specific start time
                 current_start_iso = event['start'].get('dateTime')
                 if not current_start_iso:
@@ -1149,7 +1147,7 @@ def trigger_reminders():
                 try:
                     fresh_event = execute_with_retry(service.events().get(calendarId=calendar_id, eventId=event['id']))
                     fresh_desc = fresh_event.get('description', '')
-                    
+
                     # Skip if a reminder was already sent for THIS start time
                     if specific_sent_tag in fresh_desc:
                         print(f"DEBUG CRON: Skipping '{summary}' (ID: {event['id']}) - Reminder already sent for {current_start_iso}.")
@@ -1162,7 +1160,8 @@ def trigger_reminders():
                 phone = None
                 duration = ""
                 service_type = ""
-                for line in desc.split('\n'):
+                # Use fresh_desc (from event.get) instead of list payload description for reliability.
+                for line in fresh_desc.split('\n'):
                     line = line.strip()
                     line_lower = line.lower()
                     if line_lower.startswith('phone:'):
@@ -1173,6 +1172,7 @@ def trigger_reminders():
                         service_type = line[8:].strip()
 
                 if not phone:
+                    print(f"DEBUG CRON: Skipping '{summary}' (ID: {event['id']}) - no phone metadata found.")
                     continue
 
                 start_dt = datetime.datetime.fromisoformat(current_start_iso.replace('Z', '+00:00'))
@@ -1183,6 +1183,10 @@ def trigger_reminders():
                 hours_until_appt = (start_dt - now).total_seconds() / 3600
 
                 if abs(hours_until_appt - TARGET_HOURS) > TOLERANCE:
+                    print(
+                        f"DEBUG CRON: Skipping '{summary}' (ID: {event['id']}) - "
+                        f"hours_until_appt={hours_until_appt:.2f}, target={TARGET_HOURS}±{TOLERANCE}."
+                    )
                     continue
 
                 # 3. ATOMIC SEND MARK:
