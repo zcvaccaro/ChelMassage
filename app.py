@@ -7,6 +7,8 @@ import io
 import os
 import threading
 import time
+import hmac
+import hashlib
 import re
 import random
 from urllib.parse import urlencode
@@ -51,6 +53,7 @@ SQUARE_APP_ID = os.getenv("SQUARE_APPLICATION_ID", "").strip()
 SQUARE_ACCESS_TOKEN = os.getenv("SQUARE_ACCESS_TOKEN", "").strip()
 SQUARE_LOCATION_ID = os.getenv("SQUARE_LOCATION_ID", "").strip()
 SQUARE_ENV = os.getenv("SQUARE_ENVIRONMENT", "sandbox").strip().lower()
+TEXTBEE_WEBHOOK_SECRET = os.getenv("TEXTBEE_WEBHOOK_SECRET", "").strip()
 
 # --- Sheet Insertion Constants ---
 SHEET_INSERT_START_INDEX = 4
@@ -93,6 +96,7 @@ else:
     print(f"  > Spreadsheet ID: '{SPREADSHEET_ID if SPREADSHEET_ID else 'MISSING'}'")
     print(f"  > Drive Folder:   '{DRIVE_FOLDER_ID if DRIVE_FOLDER_ID else 'MISSING'}'")
     print(f"  > Timezone:       '{LOCAL_TIMEZONE}'")
+    print(f"  > SMS Webhook:    '{'CONFIGURED' if TEXTBEE_WEBHOOK_SECRET else 'MISSING'}'")
     print("----------------------------")
 
 if not os.path.exists(SERVICE_ACCOUNT_FILE):
@@ -229,6 +233,17 @@ def safe_append_description(description, tag, content):
     if tag in description:
         return description
     return f"{description.rstrip()}\n\n{tag}\n{content}".strip()
+
+def verify_textbee_signature(raw_payload, signature, secret):
+    """Verifies the HMAC_SHA256 signature from TextBee."""
+    if not secret or not signature:
+        return False
+    expected = hmac.new(
+        secret.encode('utf-8'),
+        raw_payload,
+        hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(signature, expected)
 
 def create_event(service, summary, start_time, end_time, description="", calendar_id='primary', color_id: Optional[str] = None):
     """Creates a new event on the specified calendar."""
@@ -1062,13 +1077,13 @@ def _send_textbee_sms(phone_number, message_body):
     # Normalize phone number (E.164)
     digits = "".join(filter(str.isdigit, phone_number))
     
-    # TextBee gateways often reject the '+' sign. We will use digits only.
+    # TextBee V1 API requires the '+' prefix for E.164 formatting.
     if len(digits) == 10:
-        clean_phone = "1" + digits
+        clean_phone = "+1" + digits
     elif len(digits) == 11 and digits.startswith("1"):
-        clean_phone = digits
+        clean_phone = "+" + digits
     elif len(digits) > 11:
-        clean_phone = digits
+        clean_phone = "+" + digits
     elif len(digits) == 9:
         # Handle the specific case seen in your test: 845330406 is 9 digits.
         err = f"Invalid phone number: {phone_number} is only 9 digits. US numbers must be 10 digits."
@@ -1078,7 +1093,7 @@ def _send_textbee_sms(phone_number, message_body):
         return False, f"Phone number too short ({len(digits)} digits). Must be at least 10."
 
     payload = {
-        "to": [clean_phone],
+        "to": clean_phone,
         "message": message_body
     }
     headers = {"x-api-key": api_key}
@@ -1320,6 +1335,41 @@ def trigger_reminders():
     except Exception as e:
         print(f"CRON ERROR: {e}")
         return jsonify({"error": str(e)}), 500
+
+@app.route('/api/webhooks/textbee', methods=['POST'])
+def textbee_webhook():
+    """Webhook listener for TextBee SMS status updates."""
+    signature = request.headers.get('X-Signature')
+    raw_data = request.get_data()
+    
+    if not verify_textbee_signature(raw_data, signature, TEXTBEE_WEBHOOK_SECRET):
+        print("WEBHOOK WARNING: Received TextBee request with invalid signature.")
+        return jsonify({"error": "Invalid signature"}), 401
+
+    payload = request.json
+    event_type = payload.get('webhookEvent')
+    
+    # Log based on event type
+    if event_type == 'MESSAGE_FAILED':
+        error_code = payload.get('errorCode')
+        error_msg = payload.get('errorMessage')
+        recipient = payload.get('recipient')
+        print(f"SMS WEBHOOK FAILURE: To {recipient} | Error: {error_code} - {error_msg}")
+        # You could optionally use this to find the calendar event and mark it as failed again
+    
+    elif event_type == 'MESSAGE_SENT':
+        print(f"SMS WEBHOOK SENT: Message successfully sent to {payload.get('recipient')}")
+
+    elif event_type == 'MESSAGE_DELIVERED':
+        print(f"SMS WEBHOOK DELIVERED: Message reached the phone of {payload.get('recipient')}")
+
+    elif event_type == 'MESSAGE_RECEIVED':
+        # Handle incoming texts (replies) if needed
+        sender = payload.get('sender')
+        message = payload.get('message')
+        print(f"SMS WEBHOOK RECEIVED: New message from {sender}: {message}")
+
+    return 'OK', 200
 
 def _handle_intake_submission_background(data, pdf_output):
     """Handles slow tasks (Sheets, Email) for intake form in the background."""
