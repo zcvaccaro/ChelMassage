@@ -7,6 +7,7 @@ import io
 import os
 import threading
 import time
+import re
 import random
 from urllib.parse import urlencode
 from typing import Optional
@@ -1193,18 +1194,14 @@ def trigger_reminders():
 
                 # Parse metadata
                 phone = None
-                duration = ""
-                service_type = ""
-                # Use fresh_desc (from event.get) instead of list payload description for reliability.
-                for line in fresh_desc.split('\n'):
-                    line = line.strip()
-                    line_lower = line.lower()
-                    if line_lower.startswith('phone:'):
-                        phone = line[6:].strip()
-                    elif line_lower.startswith('duration:'):
-                        duration = line[9:].strip()
-                    elif line_lower.startswith('service:'):
-                        service_type = line[8:].strip()
+                # Use Regex to find metadata regardless of HTML tags or line position
+                phone_match = re.search(r'phone:\s*([\+\d\s\-\(\)]+)', fresh_desc, re.IGNORECASE)
+                duration_match = re.search(r'duration:\s*([^<\n\r]+)', fresh_desc, re.IGNORECASE)
+                service_match = re.search(r'service:\s*([^<\n\r]+)', fresh_desc, re.IGNORECASE)
+
+                if phone_match: phone = phone_match.group(1).strip()
+                duration = duration_match.group(1).strip() if duration_match else ""
+                service_type = service_match.group(1).strip() if service_match else ""
 
                 if not phone:
                     debug_counts["skipped_no_phone"] += 1
