@@ -573,7 +573,7 @@ header {
 .carousel-button {
   background: transparent;
   border: none;
-  color: #fff;
+  color: var(--brand-gold); /* Changed to brand gold for visibility on black background */
   width: 40px;
   height: 40px;
   padding: 0;
@@ -586,7 +586,7 @@ header {
 
 .carousel-button:hover {
   background-color: transparent;
-  color: var(--brand-gold);
+  color: #fff; /* Changed to white on hover for contrast */
   border-color: transparent;
 }
 
