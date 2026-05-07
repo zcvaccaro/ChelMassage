@@ -58,6 +58,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const slides = Array.from(track.children);
     let currentIndex = 1;
     let isMoving = false;
+    let autoCycleInterval;
 
     const updateSlidePosition = (transition = true) => {
       const slideWidth = track.parentElement.getBoundingClientRect().width;
@@ -65,13 +66,32 @@ document.addEventListener("DOMContentLoaded", () => {
       track.style.transform = `translateX(-${slideWidth * currentIndex}px)`;
     };
 
+    const startAutoCycle = () => {
+      clearInterval(autoCycleInterval);
+      autoCycleInterval = setInterval(() => {
+        if (!isMoving) {
+          currentIndex++;
+          updateSlidePosition();
+        }
+      }, 10000); // 10 seconds
+    };
+
+    // Pause auto-cycle on hover to allow reading
+    const carouselContainer = track.closest('.testimonial-carousel');
+    if (carouselContainer) {
+      carouselContainer.addEventListener('mouseenter', () => clearInterval(autoCycleInterval));
+      carouselContainer.addEventListener('mouseleave', startAutoCycle);
+    }
+
     updateSlidePosition(false);
+    startAutoCycle();
 
     nextButton.addEventListener('click', () => {
       if (isMoving) return;
       isMoving = true;
       currentIndex++;
       updateSlidePosition();
+      startAutoCycle(); // Reset timer on manual navigation
     });
 
     prevButton.addEventListener('click', () => {
@@ -79,6 +99,7 @@ document.addEventListener("DOMContentLoaded", () => {
       isMoving = true;
       currentIndex--;
       updateSlidePosition();
+      startAutoCycle(); // Reset timer on manual navigation
     });
 
     track.addEventListener('transitionend', () => {
