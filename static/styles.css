@@ -1,5 +1,6 @@
 html {
   scroll-padding-top: 180px;
+  overflow-x: hidden;
 }
 
 :root {
@@ -501,10 +502,6 @@ header {
   background-color: #000;
   color: #fff;
   padding: 5rem 0;
-}
-
-.reviews-map .container {
-  max-width: 1400px; /* Widened to allow content to move further to the sides */
 }
 
 .split-layout {
@@ -1170,6 +1167,11 @@ input.datepicker {
 }
 
 @media (max-width: 600px) {
+  .container {
+    padding: 0 1.25rem; /* Reduced from 2rem to give more horizontal room on small screens */
+    width: 100%;
+  }
+
   /* Refine services grid for 2-column mobile layout */
   .services .grid {
     gap: 0.75rem; /* Tighter gap to maximize card space */
@@ -1209,6 +1211,30 @@ input.datepicker {
   .date-time-row .form-group {
     min-width: 0;
     width: 100%;
+  }
+
+  .testimonial-carousel {
+    gap: 0.5rem;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .carousel-track-container {
+    min-width: 0; /* Allows the track to shrink properly within the flex container */
+  }
+
+  .carousel-button {
+    width: 30px;
+    flex-shrink: 0; /* Prevents navigation arrows from being squashed */
+  }
+
+  .carousel-slide p {
+    font-size: 1rem;
+    padding: 0 0.5rem; /* Maximize space for the review text */
+  }
+
+  .reviews-map {
+    padding: 3rem 0;
   }
   /* Narrow the body charts to allow for scrolling gutters on the sides */
   .body-chart {
