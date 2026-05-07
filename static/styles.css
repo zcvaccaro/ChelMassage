@@ -1193,6 +1193,18 @@ input.datepicker {
     letter-spacing: 0.2rem;
   }
 
+  .split-layout {
+    gap: 2rem; /* Reduce vertical gap between reviews and map */
+  }
+
+  .reviews-column, .map-column {
+    width: 100% !important;
+    flex: none !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+    overflow: hidden; /* Fixes "zoom out" behavior by ensuring no horizontal spill */
+  }
+
   /* Stack standard rows on mobile to prevent overlapping and alignment issues */
   .form-row,
   .address-row {
@@ -1214,27 +1226,28 @@ input.datepicker {
   }
 
   .testimonial-carousel {
-    gap: 0.5rem;
+    gap: 0.25rem; /* Minimize gap to give text maximum horizontal room */
     width: 100%;
     box-sizing: border-box;
   }
 
   .carousel-track-container {
-    min-width: 0; /* Allows the track to shrink properly within the flex container */
+    min-width: 0;
+    flex: 1;
   }
 
   .carousel-button {
-    width: 30px;
+    width: 35px;
     flex-shrink: 0; /* Prevents navigation arrows from being squashed */
   }
 
   .carousel-slide p {
-    font-size: 1rem;
-    padding: 0 0.5rem; /* Maximize space for the review text */
+    font-size: 1.05rem;
+    padding: 0; /* Maximize width for review text content */
   }
 
   .reviews-map {
-    padding: 3rem 0;
+    padding: 4rem 0 2rem 0; /* Reduced bottom padding to bring map closer */
   }
   /* Narrow the body charts to allow for scrolling gutters on the sides */
   .body-chart {
