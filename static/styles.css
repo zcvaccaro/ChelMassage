@@ -573,7 +573,7 @@ header {
 .carousel-button {
   background: transparent;
   border: none;
-  color: var(--brand-gold); /* Changed to brand gold for visibility on black background */
+  color: var(--brand-gold);
   width: 40px;
   height: 40px;
   padding: 0;
@@ -582,6 +582,15 @@ header {
   justify-content: center;
   cursor: pointer;
   transition: opacity 0.3s;
+  z-index: 10; /* Ensure buttons are above the track container */
+}
+
+/* Explicitly size SVG icons for iOS Safari visibility */
+.carousel-button svg {
+  width: 24px;
+  height: 24px;
+  display: block;
+  pointer-events: none;
 }
 
 .carousel-button:hover {

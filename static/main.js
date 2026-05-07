@@ -102,6 +102,25 @@ document.addEventListener("DOMContentLoaded", () => {
       startAutoCycle(); // Reset timer on manual navigation
     });
 
+    // --- Mobile Swipe Support ---
+    let touchStartX = 0;
+    let touchEndX = 0;
+
+    track.addEventListener('touchstart', (e) => {
+      touchStartX = e.changedTouches[0].screenX;
+    }, { passive: true });
+
+    track.addEventListener('touchend', (e) => {
+      touchEndX = e.changedTouches[0].screenX;
+      const swipeDistance = touchStartX - touchEndX;
+      const threshold = 50; // Minimum distance to trigger a slide change
+
+      if (Math.abs(swipeDistance) > threshold) {
+        if (swipeDistance > 0) nextButton.click(); // Swipe Left -> Next
+        else prevButton.click(); // Swipe Right -> Prev
+      }
+    }, { passive: true });
+
     track.addEventListener('transitionend', () => {
       isMoving = false;
       if (currentIndex === slides.length - 1) {
