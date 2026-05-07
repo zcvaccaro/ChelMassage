@@ -165,7 +165,7 @@ header {
 .logo small {
   font-size: 1.2rem;
   font-weight: normal;
-  letter-spacing: 0.33rem; /* Spread letters further to span more width */
+  letter-spacing: 0.33rem; /* Restored to original spacing */
 }
 
 /* --- Navbar CTA Button Grouping --- */
@@ -292,7 +292,7 @@ header {
 }
 
 #navMenu a {
-  margin: 0 1.2rem;
+  margin: 0 0.8rem; /* Tighter margins to fit "Reviews" link */
   font-size: 1.1rem;
   transition: opacity 0.3s ease;
 }
@@ -469,7 +469,7 @@ header {
 .close-card-btn { font-size: 0.8rem; padding: 6px 12px; }
 
 /* Mobile Nav Active State */
-@media (max-width: 1150px) {
+@media (max-width: 1280px) {
   #navMenu.is-active {
     display: flex;
     flex-direction: column;
@@ -494,6 +494,114 @@ header {
 /* Add extra space below the "Our Promise" and "About Me" sections */
 #about, #about-me {
   padding-bottom: 6rem;
+}
+
+/* --- Reviews & Map Section --- */
+.reviews-map {
+  background-color: #000;
+  color: #fff;
+  padding: 5rem 0;
+}
+
+.reviews-map .container {
+  max-width: 1400px; /* Widened to allow content to move further to the sides */
+}
+
+.split-layout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4rem;
+}
+
+.reviews-column, .map-column {
+  flex: 0 1 600px; /* Allows them to be wide but capped */
+  min-width: 0;
+}
+
+.reviews-column {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.reviews-column h2 {
+  color: var(--brand-gold);
+  margin-bottom: 2rem;
+}
+
+.testimonial-carousel {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  margin-bottom: 2rem;
+}
+
+.carousel-track-container {
+  overflow: hidden;
+  flex: 1;
+}
+
+.carousel-track {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+  display: flex;
+}
+
+.carousel-slide {
+  min-width: 100%;
+  padding: 0 1rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.carousel-slide p {
+  font-style: italic;
+  font-size: 1.2rem;
+  margin-bottom: 1rem;
+}
+
+.carousel-slide span {
+  display: block;
+  font-weight: bold;
+  color: var(--brand-gold);
+}
+
+.carousel-button {
+  background: transparent;
+  border: none;
+  color: #fff;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: opacity 0.3s;
+}
+
+.carousel-button:hover {
+  background-color: transparent;
+  color: var(--brand-gold);
+  border-color: transparent;
+}
+
+.map-column iframe {
+  border-radius: 15px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+
+.review-link {
+  background-color: transparent;
+  border: 1px solid var(--brand-gold);
+  color: var(--brand-gold);
 }
 
 .about-text {
@@ -538,7 +646,7 @@ footer {
 }
 
 /* --- Responsive Styles --- */
-@media (max-width: 1150px) {
+@media (max-width: 1280px) {
   h2 {
     font-size: 2rem;
   }
@@ -566,6 +674,11 @@ footer {
   .about, #about-me {
     flex-direction: column;
     text-align: center;
+  }
+  
+  .split-layout {
+    flex-direction: column;
+    gap: 3rem;
   }
 
   /* Reverse direction for the first about section */

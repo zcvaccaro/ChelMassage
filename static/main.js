@@ -42,6 +42,63 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  // --- Testimonial Carousel Logic ---
+  const track = document.querySelector('.carousel-track');
+  const nextButton = document.querySelector('.next-btn');
+  const prevButton = document.querySelector('.prev-btn');
+
+  if (track && track.children.length > 0) {
+    const originalSlides = Array.from(track.children);
+    const firstClone = originalSlides[0].cloneNode(true);
+    const lastClone = originalSlides[originalSlides.length - 1].cloneNode(true);
+
+    track.appendChild(firstClone);
+    track.prepend(lastClone);
+
+    const slides = Array.from(track.children);
+    let currentIndex = 1;
+    let isMoving = false;
+
+    const updateSlidePosition = (transition = true) => {
+      const slideWidth = track.parentElement.getBoundingClientRect().width;
+      track.style.transition = transition ? 'transform 500ms ease-in-out' : 'none';
+      track.style.transform = `translateX(-${slideWidth * currentIndex}px)`;
+    };
+
+    updateSlidePosition(false);
+
+    nextButton.addEventListener('click', () => {
+      if (isMoving) return;
+      isMoving = true;
+      currentIndex++;
+      updateSlidePosition();
+    });
+
+    prevButton.addEventListener('click', () => {
+      if (isMoving) return;
+      isMoving = true;
+      currentIndex--;
+      updateSlidePosition();
+    });
+
+    track.addEventListener('transitionend', () => {
+      isMoving = false;
+      if (currentIndex === slides.length - 1) {
+        currentIndex = 1;
+        updateSlidePosition(false);
+      }
+      if (currentIndex === 0) {
+        currentIndex = slides.length - 2;
+        updateSlidePosition(false);
+      }
+    });
+
+    // Handle window resize to keep current slide centered
+    window.addEventListener('resize', () => {
+      updateSlidePosition(false);
+    });
+  }
+
   // --- Card Expansion Logic (Cloning Method) ---
   const serviceCards = document.querySelectorAll(".card[data-service-id]");
   const overlay = document.querySelector(".overlay");
@@ -311,6 +368,11 @@ document.addEventListener("DOMContentLoaded", () => {
         }
       } else if (href === '#services' && targetElement) {
         // Special case for "Services" to align navbar bottom exactly with hero bottom/section top
+        const header = document.querySelector('header');
+        const headerHeight = header ? header.offsetHeight : 180;
+        const elementPosition = targetElement.getBoundingClientRect().top + window.scrollY;
+        window.scrollTo({ top: elementPosition - headerHeight, behavior: 'smooth' });
+      } else if (href === '#reviews' && targetElement) {
         const header = document.querySelector('header');
         const headerHeight = header ? header.offsetHeight : 180;
         const elementPosition = targetElement.getBoundingClientRect().top + window.scrollY;
