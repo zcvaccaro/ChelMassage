@@ -350,7 +350,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 service: serviceName,
                 calendarId: bookingResponse.calendar_event_id,
                 dob: urlParams.get('dob') || '', // Pass DOB from initial lookup
-                address: urlParams.get('address') || '' // Pass Address from initial lookup
+                address: urlParams.get('address') || '', // Pass Address from initial lookup
+                conditions: urlParams.get('conditions') || '',
+                allergies: urlParams.get('allergies') || ''
             });
             const redirectUrl = `/BookingConfirm.html?${params.toString()}`;
             window.location.href = redirectUrl;

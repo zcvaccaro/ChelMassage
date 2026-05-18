@@ -501,6 +501,30 @@ def lookup_client():
             if (row_email == search_email) or (search_phone and row_phone == search_phone):
                 # Check if square_card_id (Column H) exists
                 square_card_id = row[7] if len(row) > 7 else ""
+                full_name_to_match = f"{row[0]} {row[1]}".strip().lower()
+
+                # --- Fetch latest health info from Intake Forms ---
+                conditions = ""
+                allergies = ""
+                try:
+                    intake_res = service.spreadsheets().values().get(
+                        spreadsheetId=SPREADSHEET_ID,
+                        range="'Intake Forms'!A:J"
+                    ).execute()
+                    intake_rows = intake_res.get('values', [])
+                    # Search backwards for the most recent entry matching this email
+                    # Fallback to Name matching for older records that don't have email in Column J
+                    for i_row in reversed(intake_rows):
+                        row_intake_email = norm_email(i_row[9]) if len(i_row) > 9 else ""
+                        row_intake_name = i_row[2].strip().lower() if len(i_row) > 2 else ""
+
+                        if (row_intake_email == row_email) or (not row_intake_email and row_intake_name == full_name_to_match):
+                            conditions = i_row[4] if len(i_row) > 4 else ""
+                            allergies = i_row[5] if len(i_row) > 5 else ""
+                            break
+                except Exception as intake_err:
+                    print(f"DEBUG: Failed to fetch health info: {intake_err}")
+
                 has_card_on_file = bool(square_card_id)
                 card_last_4 = ""
 
@@ -519,7 +543,9 @@ def lookup_client():
                     "phone": row[3], "dob": row[4] if len(row) > 4 else "",
                     "address": row[5] if len(row) > 5 else "",
                     "hasCard": has_card_on_file,
-                    "last4": card_last_4
+                    "last4": card_last_4,
+                    "conditions": conditions,
+                    "allergies": allergies
                 })
 
         # 2. Fallback: Search the "On-Site Requests" sheet
@@ -551,7 +577,9 @@ def lookup_client():
                     "phone": row[2] if len(row) > 2 else "",
                     "dob": "", # DOB is not collected during on-site requests
                     "address": row[3] if len(row) > 3 else "",
-                    "hasCard": False # On-site requests don't store cards on file
+                    "hasCard": False, # On-site requests don't store cards on file
+                    "conditions": "",
+                    "allergies": ""
                 })
 
         return jsonify({"found": False})
@@ -1490,7 +1518,8 @@ def _handle_intake_submission_background(data, pdf_output):
                 data.get('allergies', ''),
                 drive_link,         # Column G: PDF Drive Link
                 '',                 # Column H: SOAP Notes (Placeholder)
-                data.get('calendarId', '') # Column I: Calendar ID
+                data.get('calendarId', ''), # Column I: Calendar ID
+                norm_email(data.get('email', '')) # Column J: Email for future lookups
             ]
 
             if intake_sheet_id is not None:

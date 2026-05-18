@@ -830,15 +830,15 @@ select {
 
 /* Force placeholder visibility and color across all browsers, especially iOS */
 ::placeholder {
-  color: #888 !important;
+  color: #aaa !important;
   opacity: 1 !important; /* Fix for Firefox/iOS opacity defaults */
 }
 input::-webkit-input-placeholder {
-  color: #888 !important;
+  color: #aaa !important;
 }
 
-:-ms-input-placeholder { color: #888 !important; }
-::-ms-input-placeholder { color: #888 !important; }
+:-ms-input-placeholder { color: #aaa !important; }
+::-ms-input-placeholder { color: #aaa !important; }
 
 fieldset {
   border: 1px solid #ddd;

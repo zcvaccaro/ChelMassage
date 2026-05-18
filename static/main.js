@@ -194,7 +194,9 @@ document.addEventListener("DOMContentLoaded", () => {
                     email: data.email, phone: data.phone,
                     dob: data.dob || '', address: data.address || '',
                     hasCard: data.hasCard ? 'true' : 'false',
-                    last4: data.last4 || ''
+                    last4: data.last4 || '',
+                    conditions: data.conditions || '',
+                    allergies: data.allergies || ''
                 });
                 window.location.href = targetUrl.includes('?') ? `${targetUrl}&${params.toString()}` : `${targetUrl}?${params.toString()}`;
             } else { error.style.display = 'block'; }

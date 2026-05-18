@@ -5,7 +5,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const fieldMapping = {
             firstName: 'firstName', lastName: 'lastName', email: 'email',
             phone: 'phone', comments: 'reason',
-            dob: 'dob', address: 'address'
+            dob: 'dob', address: 'address',
+            conditions: 'conditions',
+            allergies: 'allergies'
         };
         for (const [param, fieldId] of Object.entries(fieldMapping)) {
             const value = urlParams.get(param);
