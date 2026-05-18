@@ -508,14 +508,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const urlParams = new URLSearchParams(window.location.search);
         const service = urlParams.get('service');
         if (serviceSelect) {
+            serviceSelect.classList.add('placeholder-selected');
             if (service && Array.from(serviceSelect.options).some(opt => opt.value === service)) { // Check if the service exists
                 serviceSelect.value = service; // Pre-select the service
+                serviceSelect.classList.remove('placeholder-selected');
             }
             updateLengthOptions(); // Update duration options and trigger availability fetch
         }
     };
 
-    serviceSelect.addEventListener('change', updateLengthOptions); // Ensure this is still active for manual changes
+    serviceSelect.addEventListener('change', () => {
+        serviceSelect.classList.remove('placeholder-selected');
+        updateLengthOptions();
+    });
 
     preselectService(); // Run on page load (within DOMContentLoaded)
 });

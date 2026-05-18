@@ -23,6 +23,19 @@ document.addEventListener('DOMContentLoaded', () => {
         if (phoneInput) {
             phoneInput.setAttribute('inputmode', 'tel');
         }
+
+            // --- Handle DOB placeholder styling ---
+            const dobInput = document.getElementById('dob');
+            if (dobInput) {
+                const updateDobStyle = () => {
+                    if (dobInput.value) dobInput.classList.remove('placeholder-selected');
+                    else dobInput.classList.add('placeholder-selected');
+                };
+                // Check state initially (especially if pre-filled from URL)
+                updateDobStyle();
+                dobInput.addEventListener('change', updateDobStyle);
+                dobInput.addEventListener('input', updateDobStyle);
+            }
     };
 
     // --- 2. Setup drawable canvas for body charts ---

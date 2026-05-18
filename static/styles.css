@@ -1311,12 +1311,20 @@ input.datepicker {
    Targeting the select directly is key for the color shown when the dropdown is closed. */
 select.placeholder-selected,
 select.placeholder-selected:disabled,
-select.placeholder-selected option[disabled][selected] {
-  color: #000 !important;
-  -webkit-text-fill-color: #000 !important; /* Ensures black text before selection on iPhone */
+select.placeholder-selected option[disabled][selected],
+input[type="date"].placeholder-selected::-webkit-datetime-edit-text,
+input[type="date"].placeholder-selected::-webkit-datetime-edit-month-field,
+input[type="date"].placeholder-selected::-webkit-datetime-edit-day-field,
+input[type="date"].placeholder-selected::-webkit-datetime-edit-year-field {
+  color: #aaa !important;
+  -webkit-text-fill-color: #aaa !important;
   opacity: 1 !important; /* Prevents the browser from fading the text */
   background-color: #fff !important;
   border-color: #ccc !important;
+}
+
+input[type="date"].placeholder-selected {
+  color: #aaa !important;
 }
 
 /* Ensure the actual duration and time options in the list are always black */
