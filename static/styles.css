@@ -835,10 +835,11 @@ select {
 }
 input::-webkit-input-placeholder {
   color: #aaa !important;
+  -webkit-text-fill-color: #aaa !important; /* Ensure WebKit applies the placeholder color */
 }
 
-:-ms-input-placeholder { color: #aaa !important; }
-::-ms-input-placeholder { color: #aaa !important; }
+:-ms-input-placeholder { color: #aaa !important; } /* For IE10+ */
+::-ms-input-placeholder { color: #aaa !important; } /* For Edge */
 
 fieldset {
   border: 1px solid #ddd;
