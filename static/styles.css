@@ -483,6 +483,15 @@ header {
     align-items: center; /* Center the nav items horizontally */
     gap: 1rem; /* Add space between the menu items */
   }
+
+  .reviews-column, .map-column {
+    flex: 0 0 100%; /* Force columns to span the full container width on tablets */
+    max-width: 100%;
+  }
+
+  .testimonial-carousel {
+    gap: 1rem; /* Reduce gap on tablet sizes to keep buttons visible */
+  }
 }
 
 /* --- About Sections --- */
@@ -540,7 +549,9 @@ header {
 
 .carousel-track-container {
   overflow: hidden;
-  flex: 1;
+  flex: 1 1 0px; /* ForceBasis to 0 ensures the container shrinks within the parent before pushing buttons out */
+  min-width: 0;
+  max-width: 100%;
 }
 
 .carousel-track {
@@ -562,6 +573,8 @@ header {
   font-style: italic;
   font-size: 1.2rem;
   margin-bottom: 1rem;
+  word-wrap: break-word; /* Allow review text to wrap exactly like the About Me section */
+  overflow-wrap: break-word;
 }
 
 .carousel-slide span {
@@ -580,6 +593,7 @@ header {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0; /* Prevents navigation arrows from being squashed or pushed out */
   cursor: pointer;
   transition: opacity 0.3s;
   z-index: 10; /* Ensure buttons are above the track container */
