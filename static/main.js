@@ -13,10 +13,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const input = e.target;
     // Strip all non-numeric characters
     let value = input.value.replace(/\D/g, '');
-    
+
     // Limit to 10 digits
     if (value.length > 10) value = value.slice(0, 10);
-    
+
     let formattedValue = '';
     if (value.length > 0) {
       formattedValue = '(' + value.slice(0, 3);
