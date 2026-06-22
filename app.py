@@ -80,6 +80,7 @@ SERVICE_COLOR_MAPPING = {
     "Prenatal": "6",                  # Banana (Yellow)
     "Myofascial Release (MFR)": "10",  # Basil (Green)
 }
+WAITLIST_EVENT_COLOR_ID = "5"          # Banana (Yellow)
 
 # --- Email Configuration ---
 # Ensure we pull the email from the environment (loaded via dotenv above)
@@ -269,6 +270,63 @@ def create_event(service, summary, start_time, end_time, description="", calenda
         print(f'An error occurred: {error}')
         return None
 
+def parse_waitlist_date(date_str):
+    """Parses dates posted by the waitlist form into a local date."""
+    if not date_str:
+        return None
+
+    for fmt in ("%B %d, %Y", "%Y-%m-%d"):
+        try:
+            return datetime.datetime.strptime(date_str.strip(), fmt).date()
+        except ValueError:
+            continue
+    return None
+
+def find_waitlist_event_slot(service, requested_date):
+    """Finds the earliest available 30-minute slot from 5:00 AM to 9:30 AM local time."""
+    local_tz = ZoneInfo(LOCAL_TIMEZONE)
+    window_start = datetime.datetime.combine(requested_date, datetime.time(5, 0), tzinfo=local_tz)
+    window_end = datetime.datetime.combine(requested_date, datetime.time(9, 30), tzinfo=local_tz)
+    event_duration = timedelta(minutes=30)
+    slot_interval = timedelta(minutes=15)
+
+    busy_slots = []
+    for calendar_id in CALENDAR_IDS:
+        try:
+            events_result = service.events().list(
+                calendarId=calendar_id,
+                timeMin=window_start.isoformat(),
+                timeMax=window_end.isoformat(),
+                singleEvents=True,
+                orderBy='startTime'
+            ).execute()
+
+            for event in events_result.get('items', []):
+                if 'dateTime' not in event.get('start', {}) or 'dateTime' not in event.get('end', {}):
+                    continue
+
+                busy_slots.append({
+                    'start': parse_iso_datetime(event['start']['dateTime']),
+                    'end': parse_iso_datetime(event['end']['dateTime'])
+                })
+        except Exception as e:
+            print(f"ERROR: find_waitlist_event_slot: Failed to scan {calendar_id}: {e}")
+
+    potential_start = window_start
+    while potential_start + event_duration <= window_end:
+        potential_end = potential_start + event_duration
+        has_overlap = any(
+            potential_start < busy['end'] and potential_end > busy['start']
+            for busy in busy_slots
+        )
+
+        if not has_overlap:
+            return potential_start.astimezone(timezone.utc), potential_end.astimezone(timezone.utc)
+
+        potential_start += slot_interval
+
+    return None, None
+
 def send_email(receiver_email, subject, body_html, attachment_data=None, attachment_filename=None):
     """Sends an email using the Google Gmail API (Port 443)."""
 
@@ -423,6 +481,16 @@ def onsite_request_page():
 def request_confirm_page():
     """Serves the on-site request confirmation page."""
     return render_template('RequestConfirm.html')
+
+@app.route('/WaitList.html')
+def waitlist_page():
+    """Serves the waitlist page."""
+    return render_template('WaitList.html')
+
+@app.route('/WaitListConfirm.html')
+def waitlist_confirmation_page():
+    """Serves the waitlist confirmation page."""
+    return render_template('WaitListConfirm.html')
 
 @app.route('/IntakeConfirm.html')
 def intake_confirmation_page():
@@ -1736,6 +1804,173 @@ def submit_intake():
     except Exception as e:
         print(f"ERROR: /api/submit-intake: {e}")
         return jsonify({"error": "Server error while processing the form."}), 500
+
+@app.route('/api/submit-waitlist', methods=['POST'])
+def submit_waitlist():
+    """Receives waitlist form data and adds/updates the client contact in Sheets."""
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "Invalid JSON payload."}), 400
+
+    first_name = (data.get('firstName') or '').strip()
+    last_name = (data.get('lastName') or '').strip()
+    email = (data.get('email') or '').strip()
+    phone = (data.get('phone') or '').strip()
+
+    if not first_name or not last_name or not email or not phone:
+        return jsonify({"error": "First name, last name, email, and phone are required."}), 400
+
+    sheets_service = get_sheets_service()
+    if not sheets_service:
+        return jsonify({"error": "Sheets service unavailable"}), 500
+
+    calendar_service = get_calendar_service()
+    if not calendar_service:
+        return jsonify({"error": "Calendar service unavailable"}), 500
+
+    requested_dates = []
+    for option_num in range(1, 4):
+        date_value = (data.get(f'date{option_num}') or '').strip()
+        if not date_value:
+            continue
+
+        parsed_date = parse_waitlist_date(date_value)
+        if not parsed_date:
+            return jsonify({"error": f"Invalid date format for Date Option {option_num}."}), 400
+
+        requested_dates.append({
+            "option": option_num,
+            "date": parsed_date,
+            "date_text": date_value,
+            "time_text": (data.get(f'time{option_num}') or '').strip()
+        })
+
+    if not requested_dates:
+        return jsonify({"error": "At least one requested date is required."}), 400
+
+    try:
+        normalized_email = norm_email(email)
+
+        result = sheets_service.spreadsheets().values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range='Clients!A:D'
+        ).execute()
+        client_rows = result.get('values', [])
+
+        target_row_index = -1
+        for idx, row_val in enumerate(client_rows):
+            row_email = norm_email(row_val[2]) if len(row_val) > 2 else ""
+            if row_email == normalized_email:
+                target_row_index = idx + 1
+                break
+
+        if target_row_index != -1:
+            sheets_service.spreadsheets().values().update(
+                spreadsheetId=SPREADSHEET_ID,
+                range=f'Clients!A{target_row_index}:D{target_row_index}',
+                valueInputOption='USER_ENTERED',
+                body={'values': [[first_name, last_name, email, phone]]}
+            ).execute()
+        else:
+            spreadsheet = sheets_service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
+            client_sheet_metadata = next(s for s in spreadsheet.get('sheets', []) if s['properties']['title'] == 'Clients')
+            client_sheet_id = client_sheet_metadata['properties']['sheetId']
+
+            request_body = {
+                "requests": [{
+                    "insertDimension": {
+                        "range": {
+                            "sheetId": client_sheet_id,
+                            "dimension": "ROWS",
+                            "startIndex": SHEET_INSERT_START_INDEX,
+                            "endIndex": SHEET_INSERT_END_INDEX
+                        },
+                        "inheritFromBefore": False
+                    }
+                }]
+            }
+            sheets_service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=request_body).execute()
+
+            client_row = [first_name, last_name, email, phone, '', '', '', '']
+            sheets_service.spreadsheets().values().update(
+                spreadsheetId=SPREADSHEET_ID,
+                range=f'Clients!A{SHEET_START_ROW_REF}',
+                valueInputOption='USER_ENTERED',
+                body={'values': [client_row]}
+            ).execute()
+
+        service_labels = {
+            "deep-tissue": "Deep Tissue",
+            "swedish": "Swedish",
+            "prenatal": "Prenatal",
+            "mfr": "Myofascial Release (MFR)"
+        }
+        service_label = service_labels.get(data.get('service'), data.get('service', 'N/A'))
+        duration = data.get('length', 'N/A')
+        client_name = f"{first_name} {last_name}".strip()
+        created_events = []
+        skipped_dates = []
+
+        base_description_lines = [
+            "WAITLIST REQUEST",
+            f"Name: {client_name}",
+            f"Phone: {phone}",
+            f"Email: {email}",
+            f"Service: {service_label}",
+            f"Duration: {duration} min",
+            "",
+            "Requested Options:",
+            f"Date Option 1: {data.get('date1', '')} | Time Option 1: {data.get('time1', '')}",
+            f"Date Option 2: {data.get('date2', '')} | Time Option 2: {data.get('time2', '')}",
+            f"Date Option 3: {data.get('date3', '')} | Time Option 3: {data.get('time3', '')}",
+            "",
+            "All Submitted Fields:"
+        ]
+        for key in sorted(data.keys()):
+            base_description_lines.append(f"{key}: {data.get(key, '')}")
+        base_description = "\n".join(base_description_lines)
+
+        for requested in requested_dates:
+            start_time, end_time = find_waitlist_event_slot(calendar_service, requested["date"])
+            if not start_time or not end_time:
+                skipped_dates.append(requested["date_text"])
+                continue
+
+            event_description = (
+                f"{base_description}\n\n"
+                f"Calendar Placement: Earliest available waitlist slot\n"
+                f"Matched Request: Date Option {requested['option']} - {requested['date_text']} "
+                f"({requested['time_text'] or 'No preferred time entered'})"
+            )
+            event_summary = f"WAITLIST: {client_name} - {service_label}"
+            created_event = create_event(
+                calendar_service,
+                event_summary,
+                start_time,
+                end_time,
+                event_description,
+                PRIMARY_CALENDAR_ID,
+                color_id=WAITLIST_EVENT_COLOR_ID
+            )
+
+            if created_event:
+                created_events.append(created_event.get('id'))
+            else:
+                skipped_dates.append(requested["date_text"])
+
+        if not created_events:
+            return jsonify({
+                "error": "No available waitlist calendar slots were found between 5:00 AM and 9:30 AM for the requested dates."
+            }), 409
+
+        return jsonify({
+            "message": "Waitlist request submitted successfully.",
+            "calendar_event_ids": created_events,
+            "skipped_dates": skipped_dates
+        }), 200
+    except Exception as e:
+        print(f"ERROR: /api/submit-waitlist: {e}")
+        return jsonify({"error": "Server error while submitting waitlist request."}), 500
 
 @app.route('/api/request-onsite', methods=['POST'])
 def request_onsite():

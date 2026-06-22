@@ -34,6 +34,22 @@ document.addEventListener('DOMContentLoaded', () => {
     };
     prefillFromURL();
 
+    const waitlistLink = document.getElementById('waitlist-link');
+    if (waitlistLink) {
+        waitlistLink.addEventListener('click', (e) => {
+            e.preventDefault();
+
+            const params = new URLSearchParams();
+            ['firstName', 'lastName', 'email', 'phone', 'service', 'length'].forEach(id => {
+                const value = document.getElementById(id)?.value.trim();
+                if (value) params.set(id, value);
+            });
+
+            const queryString = params.toString();
+            window.location.href = queryString ? `${waitlistLink.href}?${queryString}` : waitlistLink.href;
+        });
+    }
+
     // Initialize Square immediately after DOM content is parsed
 
     if (!state.hasCardFromLookup) { // Only initialize Square if no card is on file or user chooses new card

@@ -84,106 +84,59 @@
             </select>
           </div>
         </div>
-        <div class="form-row">
+
+      <fieldset>
+        <legend>Requested Appointment (Select up to 3 options)</legend>
+        <div class="form-row date-time-row">
           <div class="form-group">
-            <label for="date">Date</label>
+            <label for="date1">Date Option 1</label>
             <div class="input-with-icon">
-              <input type="text" id="date" name="date" class="datepicker" required placeholder="Select a date...">
+              <input type="text" id="date1" name="date1" class="datepicker" required placeholder="Select a date...">
               <span class="input-icon"></span>
             </div>
           </div>
           <div class="form-group">
-            <label for="time">Available Times</label>
-            <select id="time" name="time" required>
-              <option value="" disabled selected>Please select a date first...</option>
-            </select>
+            <label for="time1">Time Option 1</label>
+            <input type="text" id="time1" name="time1" placeholder="e.g. 2pm or Morning" required>
           </div>
         </div>
-        <div class="form-group" style="text-align: center; margin-top: 1.5rem; margin-bottom: 0.75rem;">
-          <p style="margin-bottom: 0.5rem;">Don't see the Date or time you're looking for?</p>
-          <a href="{{ url_for('waitlist_page') }}" id="waitlist-link" class="cta secondary-cta" style="margin-top: 0;">Add Yourself to the Waitlist</a>
-        </div>
-        <div class="form-group">
-          <label for="comments">Intention for Treatment (Optional)</label>
-          <textarea id="comments" name="comments" rows="5"></textarea>
-        </div>
-
-        <fieldset>
-          <legend>Payment Information</legend>
+        <div class="form-row date-time-row">
           <div class="form-group">
-            <label for="cardName">Name on Card</label>
-            <input type="text" id="cardName" name="cardName" required>
-          </div>
-
-          <div class="form-group">
-            <label>Credit or Debit Card</label>
-            <div id="card-container"></div>
-          </div>
-
-          <!-- New placeholder for saved card option -->
-          <div id="saved-card-option" style="display: none;">
-            <p style="text-align: center; margin-bottom: 1rem;">
-              We have a card on file for you ending in ****. If you would like to use this card, simply submit your booking below. Otherwise...
-            </p>
-            <div style="display: flex; justify-content: center; gap: 1rem;">
-              <button type="button" id="use-new-card-btn" class="cta">Use a different card</button>
+            <label for="date2">Date Option 2 (Optional)</label>
+            <div class="input-with-icon">
+              <input type="text" id="date2" name="date2" class="datepicker" placeholder="Select a date...">
+              <span class="input-icon"></span>
             </div>
           </div>
-
-          <div class="form-group agreement-group" style="margin-top: 1.5rem;">
-            <input type="checkbox" id="authCharge" name="authCharge" required>
-            <span class="agreement-text" style="font-size: 0.9rem; text-align: center;">
-                <strong>I authorize Chelsea Vaccaro Therapeutic Massage to store my card on file and charge cancellation or no-show fees according to policy.</strong>
-            </span>
-            <label for="authCharge" class="checkbox-label"></label>
-            <small id="auth-error-message" class="error-message" style="display: none; color: var(--accent-color-dark); margin-top: 5px;">You must authorize the card hold to continue.</small>
+          <div class="form-group">
+            <label for="time2">Time Option 2</label>
+            <input type="text" id="time2" name="time2" placeholder="e.g. Afternoon">
           </div>
-
-          <div class="form-group" style="text-align: center; gap: 0.5rem; margin-top: 1rem;">
-            <small>This information is only for charging a cancellation fee. Please bring your preferred payment method to your appointment.</small><br>
-            <button type="button" id="cancellation-policy-btn" class="link-button">See Cancellation Policy</button>
+        </div>
+        <div class="form-row date-time-row">
+          <div class="form-group">
+            <label for="date3">Date Option 3 (Optional)</label>
+            <div class="input-with-icon">
+              <input type="text" id="date3" name="date3" class="datepicker" placeholder="Select a date...">
+              <span class="input-icon"></span>
+            </div>
           </div>
-        </fieldset>
-
-        <button type="submit" class="cta">Submit</button>
+          <div class="form-group">
+            <label for="time3">Time Option 3</label>
+            <input type="text" id="time3" name="time3" placeholder="e.g. Any time">
+          </div>
+        </div>
+      </fieldset>
+        <button type="submit" class="submit-btn">Submit Request</button>
       </form>
     </section>
   </main>
 
-  <!-- Cancellation Policy Modal -->
-  <div id="cancellation-modal" class="modal-overlay">
-    <div class="modal-content">
-      <button id="close-modal-btn" class="close-modal-btn">&times;</button>
-      <h4>Cancellation Policy</h4>
-      <br>
-      <div>To ensure all clients are treated fairly and can receive treatment on time, I ask that you provide at least <strong>24 hours notice</strong>
-        if you need to change, reschedule, or cancel your appointment.<br>
-      The following fees will apply for appointments changed or missed without sufficient notice:</div>
-      <ul>
-        <li><strong>Less than 24 hours notice:</strong> 50% of the treatment price.</li>
-        <li><strong>No-show or missed appointment:</strong> 100% of the treatment price.</li>
-      </ul>
-      <p><em>Note: The first time a client does not show up for their appointment, they will not be charged. However, the above policy will apply to every missed appointment thereafter.</em></p>
-      <p>Any charges incurred must be paid prior to your next scheduled appointment. I appreciate your understanding.</p>
-    </div>
-  </div>
-
-
   <footer>
     <p>&copy; 2025 Chelsea Vaccaro Therapeutic Massage. All rights reserved.</p>
   </footer>
-
-  {% if square_env == 'production' %}
-  <script src="https://web.squarecdn.com/v1/square.js"></script>
-  {% else %}
-  <script src="https://sandbox.web.squarecdn.com/v1/square.js"></script>
-  {% endif %}
-  <script>
-    window.SQUARE_APP_ID = "{{ square_app_id }}";
-    window.SQUARE_LOCATION_ID = "{{ square_location_id }}";
-  </script>
   <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
   <script src="{{ url_for('static', filename='main.js') }}"></script>
-  <script src="{{ url_for('static', filename='booking.js') }}"></script>
+  <script src="{{ url_for('static', filename='waitlist.js') }}"></script>
 </body>
 </html>
