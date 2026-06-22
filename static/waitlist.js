@@ -15,7 +15,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (phoneInput) phoneInput.setAttribute('inputmode', 'tel');
 
     if (window.flatpickr) {
-        flatpickr('.datepicker', { minDate: 'today', dateFormat: 'F j, Y' });
+        flatpickr('.datepicker', {
+            minDate: 'today',
+            dateFormat: 'F j, Y',
+            enable: [
+                date => [0, 1, 2].includes(date.getDay())
+            ]
+        });
     }
 
     if (waitlistForm) {
