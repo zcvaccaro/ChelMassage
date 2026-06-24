@@ -722,7 +722,7 @@ def get_availability():
 
         valid_start_times = []
         time_slot_interval = timedelta(minutes=15)
-        now = datetime.datetime.now(timezone.utc)
+        earliest_bookable_start = datetime.datetime.now(timezone.utc) + timedelta(hours=1)
 
         # Calculate availability based on the MERGED data from all calendars
         for window in open_windows:
@@ -731,8 +731,8 @@ def get_availability():
                 potential_end = potential_start + timedelta(minutes=total_block_duration)
                 if potential_end > window['end']:
                     break
-                # Skip times that have already passed if booking for today
-                if potential_start <= now:
+                # Skip times within 1 hour of the current time.
+                if potential_start < earliest_bookable_start:
                     potential_start += time_slot_interval
                     continue
 
