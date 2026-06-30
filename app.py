@@ -1075,6 +1075,7 @@ def book_appointment():
             <p>Thank you for booking your appointment! We look forward to seeing you on <strong>{booking_date_formatted}</strong> at <strong>{booking_time_formatted}</strong>.</p>
             <p>As a next step, if you have not already, please complete our secure client intake form by clicking the link below:</p>
             <p><a href="{intake_url}" class="email-cta" style="display: inline-block; padding: 12px 24px; border: 1px solid #000; background-color: #000; color: #fff; font-size: 1rem; font-weight: bold; text-decoration: none; border-radius: 50px; transition: background-color 0.3s ease, color 0.3s ease;">Complete Intake Form</a></p>
+            <p>Free parking is located behind the building.</p>
             <p>High Five!<br>Chelsea Vaccaro <br> Therapeutic Massage</p>
             </body>
             </html>
