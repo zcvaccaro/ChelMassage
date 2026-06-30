@@ -1094,6 +1094,10 @@ input.datepicker {
   margin-bottom: 2rem; /* Reduced space above the button */
 }
 
+#intake-form-link {
+  margin-bottom: 1.25rem;
+}
+
 /* --- Sticky Footer & Centering for Confirmation Page --- */
 .confirmation-page {
   display: flex;
@@ -1281,6 +1285,10 @@ input.datepicker {
   /* Adjust label size slightly on mobile to prevent text wrapping from breaking layouts */
   label {
     font-size: 0.9rem;
+  }
+
+  .reservation-section {
+    padding-bottom: 5rem;
   }
 }
 
