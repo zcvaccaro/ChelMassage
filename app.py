@@ -1197,33 +1197,24 @@ def _send_textbee_sms(phone_number, message_body):
 
     print(f"DEBUG: TextBee Payload: {payload}")
     print(f"DEBUG: Attempting SMS to {clean_phone} via TextBee (Device: {device_id})")
-    last_error = "Failed after retries"
-    # Implement a single retry for transient network failures (timeouts/connection errors)
-    for attempt in range(2): # 0 is first try, 1 is retry
-        try:
-            r = requests.post(url, json=payload, headers=headers, timeout=15)
 
-            # Log response for debugging
-            print(f"DEBUG: TextBee Response Status: {r.status_code}")
-
-            # TextBee V1 returns 201 when a message is successfully queued
-            if r.status_code in [200, 201]:
-                print(f"DEBUG: TextBee Success. Body: {r.text}")
-                return True, None
-            else:
-                last_error = f"TextBee API failure. Status: {r.status_code}, Response: {r.text}"
-                print(f"SMS ERROR: {last_error}")
-                # Do not retry for client errors (4xx) like Unauthorized or Invalid Recipients
-                if 400 <= r.status_code < 500:
-                    return False, last_error
-        except requests.exceptions.RequestException as e:
-            last_error = str(e)
-            print(f"SMS ERROR: Request failed for {clean_phone} (Attempt {attempt+1}): {last_error}")
-
-        if attempt == 0:
-            print("INFO: Retrying SMS once...")
-
-    return False, last_error
+    try:
+        r = requests.post(url, json=payload, headers=headers, timeout=30)
+        print(f"DEBUG: TextBee Response Status: {r.status_code}")
+        if 200 <= r.status_code < 300:
+            print(f"DEBUG: TextBee Success. Body: {r.text}")
+            return True, None
+        last_error = f"TextBee API failure. Status: {r.status_code}, Response: {r.text}"
+        print(f"SMS ERROR: {last_error}")
+        return False, last_error
+    except requests.exceptions.Timeout as e:
+        # TextBee may have queued the SMS before the HTTP response returned.
+        print(f"SMS WARNING: Request timed out (message may already be queued): {e}")
+        return True, None
+    except requests.exceptions.RequestException as e:
+        last_error = str(e)
+        print(f"SMS ERROR: Request failed for {clean_phone}: {last_error}")
+        return False, last_error
 
 def send_sms(phone_number, message_body):
     """Unified SMS wrapper that routes to the configured provider. Returns (True, None) on success, (False, error_message) on failure."""
@@ -1235,7 +1226,7 @@ def send_sms(phone_number, message_body):
     msg = f"SMS disabled or unsupported provider: {provider}"
     print(msg)
     return False, msg
- 
+
 @app.route('/api/cron/reminders', methods=['GET']) # This is the cron job endpoint
 def trigger_reminders():
     """Cron endpoint to send SMS reminders 26 hours before appointments."""
@@ -1272,7 +1263,7 @@ def trigger_reminders():
             "last_error": None
         }
 
-        for calendar_id in list(set(CALENDAR_IDS)): # Ensure unique calendar IDs
+        for calendar_id in [PRIMARY_CALENDAR_ID]:
             res = service.events().list(
                 calendarId=calendar_id,
                 timeMin=time_min.isoformat(),
@@ -1306,7 +1297,7 @@ def trigger_reminders():
 
                 reminder_sent_tag_prefix = "REMINDER_SENT_FOR: "
                 reminder_lock_tag_prefix = "REMINDER_LOCKED_FOR: "
-                specific_sent_tag = f"{reminder_sent_tag_prefix}{current_start_iso}"
+                specific_sent_tag = f"{reminder_sent_tag_prefix}{norm_current}"
 
                 # 1. DISPERSE WORKERS: Add random jitter to prevent synchronized race conditions
                 time.sleep(random.uniform(0.1, 1.2))
@@ -1317,9 +1308,12 @@ def trigger_reminders():
                     fresh_desc = fresh_event.get('description', '')
 
                     # Skip if a reminder was already sent for THIS start time
-                    if specific_sent_tag in fresh_desc:
+                    if (
+                        specific_sent_tag in fresh_desc
+                        or f"{reminder_sent_tag_prefix}{current_start_iso}" in fresh_desc
+                    ):
                         debug_counts["skipped_already_sent"] += 1
-                        print(f"DEBUG CRON: Skipping '{summary}' (ID: {event['id']}) - Reminder already sent for {current_start_iso}.")
+                        print(f"DEBUG CRON: Skipping '{summary}' (ID: {event['id']}) - Reminder already sent for {norm_current}.")
                         continue
                 except Exception as e:
                     print(f"ERROR: Failed to verify status for event {event['id']}: {e}")
@@ -1359,7 +1353,7 @@ def trigger_reminders():
 
                 # 3. ATOMIC SEND MARK:
                 # Mark `REMINDER_SENT_FOR` first under ETag, then send SMS.
-                # If SMS fails, we remove the SENT tag so a future cron run can retry.
+                # If SMS fails, keep the tag so cron does not send duplicate reminders.
                 try:
                     # Remove any previous sent/lock markers for this appointment,
                     # then write the "sent" marker exactly once.
@@ -1376,6 +1370,16 @@ def trigger_reminders():
                         description=locked_desc,
                         etag=fresh_event.get('etag')
                     )
+                    verified_event = execute_with_retry(
+                        service.events().get(calendarId=calendar_id, eventId=event['id'])
+                    )
+                    verified_desc = verified_event.get('description', '')
+                    if specific_sent_tag not in verified_desc:
+                        print(
+                            f"ERROR: REMINDER_SENT tag did not persist on '{summary}' "
+                            f"(ID: {event['id']}); skipping SMS to avoid duplicates."
+                        )
+                        continue
                     print(f"DEBUG CRON: Marked event '{summary}' as SMS-sent.")
                 except HttpError as e:
                     if e.resp.status == 412:
@@ -1409,26 +1413,7 @@ def trigger_reminders():
                 else: # SMS failed
                     debug_counts["sms_failed"] += 1
                     debug_counts["last_error"] = sms_error_message
-                    # Remove SENT tag so the next cron run can retry sending.
-                    # Best effort: if removal fails, the event may become sticky "sent".
-                    print(f"WARNING: SMS failed for {summary}; removing SENT tag for retry.")
-                    try:
-                        fresh_after = execute_with_retry(service.events().get(calendarId=calendar_id, eventId=event['id']))
-                        after_desc = fresh_after.get('description', '')
-                        clean_after_lines = [
-                            line for line in after_desc.split('\n')
-                            if not line.strip().startswith(reminder_sent_tag_prefix)
-                        ]
-                        unlocked_desc = "\n".join(clean_after_lines).rstrip()
-                        patch_event_description_with_etag(
-                            service=service,
-                            calendar_id=calendar_id,
-                            event_id=event['id'],
-                            description=unlocked_desc,
-                            etag=fresh_after.get('etag')
-                        )
-                    except Exception as e:
-                        print(f"ERROR: Failed to remove SENT tag for event {event['id']}: {e}")
+                    # Keep REMINDER_SENT_FOR tag to prevent duplicate texts on the next cron run.
                     print(f"WARNING: SMS failed for '{summary}' (ID: {event['id']}) with error: {sms_error_message}")
 
         response_payload = {"status": "success", "reminders_sent": sent_count}
