@@ -1120,7 +1120,7 @@ def book_appointment():
             </head>
             <body>
             <p>Hi {esc(client_first_name)},</p>
-            <p>Thank you for booking your appointment! We look forward to seeing you on <strong>{booking_date_formatted}</strong> at <strong>{booking_time_formatted}</strong>.</p>
+            <p>Thank you for booking your appointment! I look forward to seeing you on <strong>{booking_date_formatted}</strong> at <strong>{booking_time_formatted}</strong>.</p>
             <p>As a next step, if you have not already, please complete our secure client intake form by clicking the link below:</p>
             <p><a href="{intake_url}" class="email-cta" style="display: inline-block; padding: 12px 24px; border: 1px solid #000; background-color: #000; color: #fff; font-size: 1rem; font-weight: bold; text-decoration: none; border-radius: 50px; transition: background-color 0.3s ease, color 0.3s ease;">Complete Intake Form</a></p>
             <p>Free parking is located behind the building.</p>
@@ -2099,9 +2099,9 @@ def _handle_onsite_request_background(data):
             client_body_html = f"""
             <p>Hi {esc(first_name)},</p>
             <p>Thank you for requesting an on-site treatment with Chelsea Vaccaro Therapeutic Massage!</p>
-            <p>We have received your request for <strong>{all_client_services_summary}</strong> at <strong>{esc(data.get('address'))}</strong> on <strong>{esc(times_sentence)}</strong>.</p>
-            <p>We will check our schedules and reach out to you via <strong>{esc(data.get('contactMethod').lower())}</strong> as soon as possible with options and pricing to finalize your appointment.</p>
-            <p>We look forward to helping you heal and refresh in the comfort of your home!</p>
+            <p>I have received your request for <strong>{all_client_services_summary}</strong> at <strong>{esc(data.get('address'))}</strong> on <strong>{esc(times_sentence)}</strong>.</p>
+            <p>I will check our schedules and reach out to you via <strong>{esc(data.get('contactMethod').lower())}</strong> as soon as possible with options and pricing to finalize your appointment.</p>
+            <p>I look forward to helping you heal and refresh in the comfort of your home!</p>
             <p>High Five!<br>Chelsea Vaccaro <br> Therapeutic Massage</p>
             """
             send_email(client_email, client_subject, client_body_html)
