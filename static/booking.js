@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- 0. Global State & URL Parameters ---
     const urlParams = new URLSearchParams(window.location.search);
+    let pendingTimeFromURL = urlParams.get('time');
     const state = {
         hasCardFromLookup: urlParams.get('hasCard') === 'true',
         useSavedCard: false,
@@ -19,18 +20,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let card;
     let fp; // Flatpickr instance
+    let availableDaysLoaded = false;
 
     // Initialize the Calendar immediately
     initializeDatePicker();
 
     // --- Pre-fill Logic for Returning Customers ---
     const prefillFromURL = () => {
-        const urlParams = new URLSearchParams(window.location.search);
         ['firstName', 'lastName', 'email', 'phone', 'address', 'dob'].forEach(id => {
             const val = urlParams.get(id);
             const el = document.getElementById(id);
             if (val && el) el.value = val;
         });
+
+        if (serviceSelect && urlParams.get('service')) {
+            const service = urlParams.get('service');
+            if (Array.from(serviceSelect.options).some(option => option.value === service)) {
+                serviceSelect.value = service;
+                serviceSelect.classList.remove('placeholder-selected');
+            }
+        }
     };
     prefillFromURL();
 
@@ -208,6 +217,17 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         timeSelect.disabled = false;
+
+        if (pendingTimeFromURL) {
+            const matchingOption = Array.from(timeSelect.options).find(
+                option => option.value === pendingTimeFromURL
+            );
+            if (matchingOption) {
+                timeSelect.value = pendingTimeFromURL;
+                timeSelect.classList.remove('placeholder-selected');
+                pendingTimeFromURL = null;
+            }
+        }
     };
 
     // --- 2. Handle Form Submission ---
@@ -457,6 +477,28 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- 3. Initialize Date Picker with Enabled Dates ---
+    const prefillScheduleFromURL = () => {
+        if (!fp || !availableDaysLoaded) return;
+
+        const lengthParam = urlParams.get('length');
+        const dateParam = urlParams.get('date');
+
+        if (lengthParam && Array.from(lengthSelect.options).some(option => option.value === lengthParam)) {
+            lengthSelect.value = lengthParam;
+            lengthSelect.classList.remove('placeholder-selected');
+        }
+
+        if (dateParam) {
+            fp.setDate(dateParam, true);
+        }
+
+        // Always fetch when both date and duration are ready. setDate may not
+        // re-fire onChange if the date was already applied before length loaded.
+        if (dateParam && lengthSelect.value && fp.selectedDates.length > 0) {
+            fetchAndDisplayAvailability();
+        }
+    };
+
     async function initializeDatePicker() {
         // Initialize flatpickr immediately so the grid appears on click
         fp = flatpickr("#date", {
@@ -477,6 +519,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // Update the existing calendar instance with the whitelisted dates from the server
             fp.set("enable", availableDays);
+            availableDaysLoaded = true;
+            prefillScheduleFromURL();
 
         } catch (error) {
             console.error("Failed to initialize date picker:", error);
@@ -521,15 +565,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- 5. Pre-select service from URL ---
     const preselectService = () => {
-        const urlParams = new URLSearchParams(window.location.search);
         const service = urlParams.get('service');
         if (serviceSelect) {
-            serviceSelect.classList.add('placeholder-selected');
-            if (service && Array.from(serviceSelect.options).some(opt => opt.value === service)) { // Check if the service exists
-                serviceSelect.value = service; // Pre-select the service
+            if (!service || serviceSelect.value !== service) {
+                serviceSelect.classList.add('placeholder-selected');
+            }
+            if (service && Array.from(serviceSelect.options).some(opt => opt.value === service)) {
+                serviceSelect.value = service;
                 serviceSelect.classList.remove('placeholder-selected');
             }
-            updateLengthOptions(); // Update duration options and trigger availability fetch
+            updateLengthOptions();
+            prefillScheduleFromURL();
         }
     };
 

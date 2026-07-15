@@ -1137,6 +1137,29 @@ input.datepicker {
   box-shadow: 0 5px 15px rgba(0,0,0,0.3);
 }
 
+.waitlist-availability-modal-content {
+  text-align: center;
+}
+
+.waitlist-availability-modal-content .form-group {
+  display: flex;
+  flex-direction: column;
+  margin-top: 1.25rem;
+  text-align: center;
+}
+
+.waitlist-availability-actions {
+  margin-top: 1.5rem;
+  line-height: 1.9;
+}
+
+#waitlist-book-now-btn {
+  display: inline-block;
+  margin: 0.75rem 0;
+  padding: 0.55rem 1.35rem;
+  font-size: 0.95rem;
+}
+
 .close-modal-btn {
   position: absolute;
   top: 10px;

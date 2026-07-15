@@ -132,6 +132,26 @@
     </section>
   </main>
 
+  <div id="waitlist-availability-modal" class="modal-overlay" aria-hidden="true">
+    <div class="modal-content waitlist-availability-modal-content">
+      <button type="button" id="close-waitlist-availability-modal" class="close-modal-btn" aria-label="Close">&times;</button>
+      <p id="waitlist-availability-message"></p>
+      <div class="form-group">
+        <label for="waitlist-modal-time">Available Times</label>
+        <select id="waitlist-modal-time">
+          <option value="" disabled selected>Fetching times...</option>
+        </select>
+      </div>
+      <p class="waitlist-availability-actions">
+        If you selected a time that works for you:<br>
+        <button type="button" id="waitlist-book-now-btn" class="cta">Book it now</button><br>
+        If these times don't work for you
+        <button type="button" id="waitlist-continue-link" class="link-button">click here</button>
+        to continue your waitlist request.
+      </p>
+    </div>
+  </div>
+
   <footer>
     <p>&copy; 2025 Chelsea Vaccaro Therapeutic Massage. All rights reserved.</p>
   </footer>

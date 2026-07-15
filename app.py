@@ -327,6 +327,54 @@ def find_waitlist_event_slot(service, requested_date):
 
     return None, None
 
+def _format_waitlist_client_date_line(option_num, data):
+    """Formats a waitlist date option line for the client confirmation email."""
+    date_val = (data.get(f'date{option_num}') or '').strip()
+    time_val = (data.get(f'time{option_num}') or '').strip()
+    if not date_val:
+        return f"Date {option_num}: N/A"
+    return f"Date {option_num}: {time_val} on {date_val}"
+
+def _handle_waitlist_emails_background(first_name, client_email, data, event_descriptions):
+    """Background task to send waitlist confirmation emails to client and admin."""
+    esc = html.escape
+
+    if client_email:
+        try:
+            date_lines = [
+                _format_waitlist_client_date_line(option_num, data)
+                for option_num in range(1, 4)
+            ]
+            date_lines_html = "<br>".join(esc(line) for line in date_lines)
+            client_subject = "Waitlist Confirmation"
+            client_body_html = f"""
+            <p>Hi {esc(first_name)}!</p>
+            <p>Thanks for adding yourself to the waitlist for the following dates:</p>
+            <p>{date_lines_html}</p>
+            <p>If any appointments open up that match your request I will be sure to reach out to you!</p>
+            <p>High Five!<br>Chelsea</p>
+            """
+            client_email_sent, _ = send_email(client_email, client_subject, client_body_html)
+            if client_email_sent:
+                print(f"BACKGROUND_TASK: Waitlist confirmation email sent to client {client_email}")
+            else:
+                print(f"BACKGROUND_TASK: WARNING: Failed to send waitlist confirmation email to client {client_email}")
+        except Exception as e:
+            print(f"ERROR: Failed to send waitlist confirmation email to client: {e}")
+
+    try:
+        admin_email = SENDER_EMAIL
+        admin_subject = "Client added to waitlist"
+        admin_body_text = "\n\n---\n\n".join(event_descriptions)
+        admin_body_html = f'<pre style="font-family: inherit; white-space: pre-wrap;">{esc(admin_body_text)}</pre>'
+        admin_email_sent, _ = send_email(admin_email, admin_subject, admin_body_html)
+        if admin_email_sent:
+            print("BACKGROUND_TASK: Waitlist notification email sent to admin.")
+        else:
+            print("BACKGROUND_TASK: WARNING: Failed to send waitlist notification email to admin.")
+    except Exception as e:
+        print(f"ERROR: Failed to send waitlist notification email to admin: {e}")
+
 def send_email(receiver_email, subject, body_html, attachment_data=None, attachment_filename=None):
     """Sends an email using the Google Gmail API (Port 443)."""
 
@@ -1895,6 +1943,7 @@ def submit_waitlist():
         duration = data.get('length', 'N/A')
         client_name = f"{first_name} {last_name}".strip()
         created_events = []
+        event_descriptions = []
         skipped_dates = []
 
         base_description_lines = [
@@ -1941,6 +1990,7 @@ def submit_waitlist():
 
             if created_event:
                 created_events.append(created_event.get('id'))
+                event_descriptions.append(event_description)
             else:
                 skipped_dates.append(requested["date_text"])
 
@@ -1948,6 +1998,12 @@ def submit_waitlist():
             return jsonify({
                 "error": "No available waitlist calendar slots were found between 5:00 AM and 9:30 AM for the requested dates."
             }), 409
+
+        threading.Thread(
+            target=_handle_waitlist_emails_background,
+            name="waitlist_email_bg",
+            args=(first_name, email, data, event_descriptions)
+        ).start()
 
         return jsonify({
             "message": "Waitlist request submitted successfully.",
