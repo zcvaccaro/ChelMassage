@@ -662,7 +662,64 @@ footer {
   background: #000;
   color: #fff;
   text-align: center;
-  padding: 2rem 0;
+  padding: 2rem 1.5rem;
+}
+
+.footer-privacy {
+  max-width: 720px;
+  margin: 0 auto 1.5rem;
+}
+
+.footer-privacy-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin-bottom: 0.65rem;
+  color: #fff;
+}
+
+.footer-privacy-text {
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.85);
+  margin: 0;
+}
+
+.footer-privacy-text a {
+  color: #fff;
+  text-decoration: underline;
+}
+
+.footer-privacy-text a:hover {
+  color: var(--brand-gold);
+}
+
+.privacy-policy-link {
+  display: inline;
+  background: none !important;
+  border: none !important;
+  color: #fff !important;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0 !important;
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+  font-family: inherit;
+  border-radius: 0 !important;
+  line-height: inherit;
+  vertical-align: baseline;
+}
+
+.privacy-policy-link:hover {
+  background: none !important;
+  color: var(--brand-gold) !important;
+  border: none !important;
+}
+
+.footer-copyright {
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.75);
+  margin: 0;
 }
 
 /* --- Responsive Styles --- */
@@ -1172,6 +1229,66 @@ input.datepicker {
   padding: 0;
   line-height: 1;
   color: #555;
+}
+
+#privacy-policy-modal .modal-content {
+  max-width: 720px;
+  max-height: min(85vh, 800px);
+  overflow-y: auto;
+  text-align: left;
+  -webkit-overflow-scrolling: touch;
+}
+
+.privacy-policy-body {
+  color: var(--primary-text-color);
+}
+
+.privacy-policy-body h3 {
+  text-align: center;
+  margin-bottom: 0.35rem;
+  font-size: 1.5rem;
+}
+
+.privacy-policy-updated {
+  text-align: center;
+  font-size: 0.85rem;
+  color: #666;
+  margin-bottom: 1.5rem;
+}
+
+.privacy-policy-body h4 {
+  margin: 1.35rem 0 0.5rem;
+  font-size: 1.05rem;
+  color: #222;
+}
+
+.privacy-policy-body p,
+.privacy-policy-body li {
+  font-size: 0.95rem;
+  line-height: 1.65;
+  margin-bottom: 0.65rem;
+}
+
+.privacy-policy-body ul {
+  margin: 0 0 0.75rem 1.25rem;
+}
+
+.privacy-policy-body a {
+  text-decoration: underline;
+  color: #000;
+}
+
+@media (max-width: 600px) {
+  #privacy-policy-modal .modal-content {
+    width: 94%;
+    padding: 1.5rem 1.15rem 1.25rem;
+    max-height: 88vh;
+  }
+
+  .privacy-policy-body h3 {
+    font-size: 1.25rem;
+    padding-right: 1.5rem;
+  }
 }
 
 /* --- Form Layout & Mobile Optimization --- */

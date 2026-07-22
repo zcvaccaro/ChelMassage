@@ -207,7 +207,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Intercept all Booking and OnSite links
   document.addEventListener('click', (e) => {
     const btn = e.target.closest('a, button');
-    if (!btn || e.target.closest('#lookup-modal')) return;
+    if (!btn || e.target.closest('#lookup-modal') || e.target.closest('#privacy-policy-modal') || btn.id === 'privacy-policy-btn') return;
     const href = btn.getAttribute('href') || '';
 
     // Intercept Gift Card buttons
@@ -429,4 +429,117 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
   });
+
+  // --- Privacy Policy Modal ---
+  const privacyPolicyBtn = document.getElementById('privacy-policy-btn');
+  if (privacyPolicyBtn && !document.getElementById('privacy-policy-modal')) {
+    const privacyModalHtml = `
+      <div id="privacy-policy-modal" class="modal-overlay" aria-hidden="true" role="dialog" aria-labelledby="privacy-policy-title">
+        <div class="modal-content">
+          <button type="button" class="close-modal-btn" id="close-privacy-policy-btn" aria-label="Close Privacy Policy">&times;</button>
+          <div class="privacy-policy-body">
+            <h3 id="privacy-policy-title">Privacy Policy</h3>
+            <p class="privacy-policy-updated">Chelsea Vaccaro Therapeutic Massage &middot; New York State<br>Last updated: July 22, 2026</p>
+
+            <p>Chelsea Vaccaro Therapeutic Massage (&ldquo;we,&rdquo; &ldquo;us,&rdquo; or &ldquo;our&rdquo;) respects your privacy and is committed to protecting your personal information and health-related information. This Privacy Policy explains how we collect, use, store, and safeguard information when you use our website, book appointments, join our waitlist, submit intake forms, request on-site services, or otherwise communicate with us.</p>
+
+            <h4>1. Information We Collect</h4>
+            <p>Depending on how you interact with us, we may collect:</p>
+            <ul>
+              <li><strong>Contact &amp; identity information:</strong> name, email address, phone number, and mailing/service address.</li>
+              <li><strong>Appointment information:</strong> preferred or scheduled dates and times, service type, session duration, and related booking notes.</li>
+              <li><strong>Intake &amp; health-related information:</strong> details you voluntarily provide on client intake forms (such as relevant health history, conditions, allergies, or treatment intentions) needed to provide safe therapeutic massage care.</li>
+              <li><strong>Payment-related information:</strong> cardholder name and payment authorization details processed through our secure payment provider for card-on-file storage and cancellation/no-show fee authorization. We do not store full card numbers on our own servers.</li>
+              <li><strong>Communications:</strong> messages you send us by email, form submission, or other contact methods.</li>
+            </ul>
+
+            <h4>2. How We Use Your Information</h4>
+            <p>We use the information we collect to:</p>
+            <ul>
+              <li>Schedule, confirm, remind you about, and manage appointments and waitlist requests</li>
+              <li>Provide therapeutic massage services tailored to your needs and safety considerations</li>
+              <li>Process payment authorizations and apply cancellation or no-show fees according to our published policy</li>
+              <li>Respond to inquiries and administer on-site treatment requests</li>
+              <li>Maintain accurate client records and communicate about your care</li>
+              <li>Operate, secure, and improve our website and administrative systems</li>
+            </ul>
+            <p>We do not sell your personal information.</p>
+
+            <h4>3. HIPAA &amp; Health Information Safeguards</h4>
+            <p>As a healthcare-related service provider operating in New York, we treat client intake and other health-related details as sensitive information and apply safeguards consistent with applicable HIPAA privacy and security expectations for Protected Health Information (PHI), where those requirements apply. Health-related information is collected only as needed for treatment and related operations, transmitted and stored using secure systems, and limited to authorized use for providing and administering care.</p>
+
+            <h4>4. NYS SHIELD Act Compliance</h4>
+            <p>In accordance with the New York Stop Hacks and Improve Electronic Data Security (SHIELD) Act, we maintain reasonable administrative, technical, and physical safeguards designed to protect the security, confidentiality, and integrity of private information. These measures may include access controls, secure transmission, account authentication, vendor due diligence, and internal practices intended to reduce the risk of unauthorized access, use, or disclosure.</p>
+
+            <h4>5. Third-Party Services</h4>
+            <p>We use trusted third-party providers to help operate our practice, which may include:</p>
+            <ul>
+              <li><strong>Secure payment processing</strong> (for example, Square) for card authorization and related payment functions</li>
+              <li><strong>Google Workspace / Google Calendar</strong> for scheduling and administrative coordination</li>
+              <li><strong>Email and messaging services</strong> to send confirmations, notifications, and appointment reminders</li>
+            </ul>
+            <p>These providers process information only as needed to perform services on our behalf and are expected to maintain appropriate security practices. Their own privacy policies also apply to their processing of your data.</p>
+
+            <h4>6. Cookies &amp; Tracking Technologies</h4>
+            <p>Our website may use essential cookies or similar technologies required for basic site functionality (such as form submission and session continuity). We do not use invasive advertising trackers as part of our core booking experience. If limited analytics or hosting logs are used to understand site performance or troubleshoot issues, they are used only for operational purposes.</p>
+
+            <h4>7. Data Retention</h4>
+            <p>We retain personal and health-related information only as long as reasonably necessary for treatment, scheduling, legal, accounting, and operational purposes, or as otherwise required by applicable law.</p>
+
+            <h4>8. Your Rights &amp; Contact Information</h4>
+            <p>You may request access to, correction of, or updates regarding the personal information we maintain about you, subject to applicable legal and clinical record-keeping requirements. To make a privacy-related request or ask questions about this policy, please contact:</p>
+            <p>
+              <strong>Chelsea Vaccaro Therapeutic Massage</strong><br>
+              Email: <a href="mailto:info@chelseavaccaromassage.com">info@chelseavaccaromassage.com</a>
+            </p>
+            <p>We will respond to reasonable requests in a timely manner consistent with applicable law.</p>
+
+            <h4>9. Changes to This Policy</h4>
+            <p>We may update this Privacy Policy from time to time to reflect changes in our practices, technology, or legal requirements. The &ldquo;Last updated&rdquo; date at the top of this notice indicates when the policy was most recently revised. Continued use of our website or services after an update constitutes notice of the revised policy.</p>
+          </div>
+        </div>
+      </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', privacyModalHtml);
+
+    const privacyModal = document.getElementById('privacy-policy-modal');
+    const closePrivacyBtn = document.getElementById('close-privacy-policy-btn');
+
+    const openPrivacyModal = () => {
+      privacyModal.style.display = 'flex';
+      privacyModal.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+    };
+
+    const closePrivacyModal = () => {
+      privacyModal.style.display = 'none';
+      privacyModal.setAttribute('aria-hidden', 'true');
+      document.body.style.overflow = '';
+    };
+
+    privacyPolicyBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openPrivacyModal();
+    });
+
+    if (closePrivacyBtn) {
+      closePrivacyBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        closePrivacyModal();
+      });
+    }
+
+    privacyModal.addEventListener('click', (e) => {
+      if (e.target === privacyModal) closePrivacyModal();
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && privacyModal.style.display === 'flex') {
+        closePrivacyModal();
+      }
+    });
+  }
 });
