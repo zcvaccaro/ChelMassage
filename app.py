@@ -1764,7 +1764,7 @@ def submit_intake():
         conditions = data.get('conditions')
         if isinstance(conditions, list):
             conditions = ', '.join(conditions)
-        write_line("Conditions:", conditions)
+        write_line("Conditions:", conditions, is_multiline=True)
         write_line("Allergies:", data.get('allergies', 'N/A'), is_multiline=True)
         pdf.ln(5)
 
