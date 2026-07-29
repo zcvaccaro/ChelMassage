@@ -101,15 +101,35 @@
           <legend>Problem Areas</legend>
           <p>Please circle on the areas of the diagrams where you feel discomfort or pain.</p>
           <div class="body-chart-container">
-            <div id="body-chart-front" class="body-chart">
-              <p>Front</p>
-              <img src="{{ url_for('static', filename='Images/Front.png') }}" alt="Front of body">
-              <button type="button" class="undo-btn">Undo Last Mark</button>
+            <div class="body-chart-frame">
+              <div class="scroll-gutter scroll-gutter--left" aria-hidden="true">
+                <span class="scroll-gutter-edge"></span>
+                <span class="scroll-gutter-chevrons"></span>
+              </div>
+              <div id="body-chart-front" class="body-chart">
+                <p>Front</p>
+                <img src="{{ url_for('static', filename='Images/Front.png') }}" alt="Front of body">
+                <button type="button" class="undo-btn">Undo Last Mark</button>
+              </div>
+              <div class="scroll-gutter scroll-gutter--right" aria-hidden="true">
+                <span class="scroll-gutter-edge"></span>
+                <span class="scroll-gutter-chevrons"></span>
+              </div>
             </div>
-            <div id="body-chart-back" class="body-chart">
-              <p>Back</p>
-              <img src="{{ url_for('static', filename='Images/Back.png') }}" alt="Back of body">
-              <button type="button" class="undo-btn">Undo Last Mark</button>
+            <div class="body-chart-frame">
+              <div class="scroll-gutter scroll-gutter--left" aria-hidden="true">
+                <span class="scroll-gutter-edge"></span>
+                <span class="scroll-gutter-chevrons"></span>
+              </div>
+              <div id="body-chart-back" class="body-chart">
+                <p>Back</p>
+                <img src="{{ url_for('static', filename='Images/Back.png') }}" alt="Back of body">
+                <button type="button" class="undo-btn">Undo Last Mark</button>
+              </div>
+              <div class="scroll-gutter scroll-gutter--right" aria-hidden="true">
+                <span class="scroll-gutter-edge"></span>
+                <span class="scroll-gutter-chevrons"></span>
+              </div>
             </div>
           </div>
           <!-- Hidden input to store the coordinates of clicks -->

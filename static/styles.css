@@ -1022,6 +1022,17 @@ input.datepicker {
   margin-top: 1rem;
 }
 
+.body-chart-frame {
+  flex: 1;
+  min-width: 200px;
+  display: block;
+}
+
+/* Scroll gutters are mobile-only visual cues */
+.scroll-gutter {
+  display: none;
+}
+
 .body-chart {
   position: relative;
   cursor: crosshair;
@@ -1030,6 +1041,7 @@ input.datepicker {
   min-width: 200px;
   display: flex;
   flex-direction: column;
+  width: 100%;
 }
 
 .body-chart > div[style*="position: relative;"] {
@@ -1417,11 +1429,70 @@ input.datepicker {
   .reviews-map {
     padding: 4rem 0 2rem 0; /* Reduced bottom padding to bring map closer */
   }
-  /* Narrow the body charts to allow for scrolling gutters on the sides */
-  .body-chart {
-    max-width: 85%;
-    margin: 0 auto;
+
+  /* Extra breathing room above key section titles on phones */
+  .services > h2,
+  #about .about-text > h2 {
+    padding-top: 1.25rem;
   }
+
+  /* Narrow the body charts to allow for scrolling gutters on the sides */
+  .body-chart-frame {
+    display: flex;
+    width: 100%;
+    align-items: stretch;
+    position: relative;
+  }
+
+  .body-chart {
+    flex: 1 1 auto;
+    max-width: none;
+    min-width: 0;
+    margin: 0;
+  }
+
+  .scroll-gutter {
+    display: flex;
+    flex: 0 0 7.5%;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    pointer-events: none;
+    min-height: 12rem;
+  }
+
+  .scroll-gutter-edge {
+    position: absolute;
+    top: 1.75rem;
+    bottom: 3.5rem;
+    width: 0;
+    border-left: 2px dotted #b0b0b0;
+  }
+
+  .scroll-gutter--left .scroll-gutter-edge {
+    right: 0;
+  }
+
+  .scroll-gutter--right .scroll-gutter-edge {
+    left: 0;
+  }
+
+  .scroll-gutter-chevrons {
+    color: #b0b0b0;
+    font-size: 0.95rem;
+    line-height: 1.05;
+    letter-spacing: 0;
+    text-align: center;
+    user-select: none;
+  }
+
+  .scroll-gutter-chevrons::before {
+    content: "˅\A˅\A˅";
+    white-space: pre;
+    display: block;
+  }
+
   /* Adjust label size slightly on mobile to prevent text wrapping from breaking layouts */
   label {
     font-size: 0.9rem;
