@@ -1,38 +1,44 @@
 # === Chel Massage Backend Plan ===
 import base64
 import datetime
+import hashlib
+import hmac
 import html
-from datetime import timezone, timedelta
 import io
 import os
+import random
+import re
 import threading
 import time
-import hmac
-import hashlib
-import re
-import random
-from urllib.parse import urlencode
-from typing import Optional
-from zoneinfo import ZoneInfo
 import uuid
-from googleapiclient.errors import HttpError
+from datetime import timedelta, timezone
+from email import encoders
+from email.mime.base import MIMEBase
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from urllib.parse import urlencode
+from zoneinfo import ZoneInfo
+
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify, render_template, url_for, send_from_directory, redirect
+from flask import (
+    Flask,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    send_from_directory,
+    url_for,
+)
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos
-from PIL import Image
-
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials as UserCredentials
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseUpload
-
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.base import MIMEBase
-from email import encoders
-from square.client import Client # Ensure Square Client is imported at the top
+from PIL import Image
+from square.client import Client  # Ensure Square Client is imported at the top
 
 # 1. Load environment variables from .env file immediately
 load_dotenv()
@@ -214,7 +220,7 @@ def patch_event_description_with_etag(service, calendar_id, event_id, descriptio
     req.headers['If-Match'] = etag
     return execute_with_retry(req)
 
-def parse_iso_datetime(value: Optional[str]) -> datetime.datetime:
+def parse_iso_datetime(value: str | None) -> datetime.datetime:
     """Parse ISO-8601 datetimes reliably, including trailing `Z` (UTC)."""
     if not value:
         raise ValueError("Empty datetime value")
@@ -291,7 +297,7 @@ def verify_textbee_signature(raw_payload, signature, secret):
     ).hexdigest()
     return hmac.compare_digest(signature, expected)
 
-def create_event(service, summary, start_time, end_time, description="", calendar_id='primary', color_id: Optional[str] = None):
+def create_event(service, summary, start_time, end_time, description="", calendar_id='primary', color_id: str | None = None):
     """Creates a new event on the specified calendar."""
     event = {
         'summary': summary,
@@ -322,7 +328,7 @@ def parse_waitlist_date(date_str):
 
     for fmt in ("%B %d, %Y", "%Y-%m-%d"):
         try:
-            return datetime.datetime.strptime(date_str.strip(), fmt).date()
+            return datetime.datetime.strptime(date_str.strip(), fmt).replace(tzinfo=timezone.utc).date()
         except ValueError:
             continue
     return None
@@ -626,7 +632,7 @@ def _get_available_dates_list(days_to_scan=180):
     if not available_dates_set:
         print(f"DEBUG: _get_available_dates_list: No 'Open for Bookings' events found in {CALENDAR_IDS}")
 
-    return sorted(list(available_dates_set))
+    return sorted(available_dates_set)
 
 
 # --- API Endpoints ---
@@ -1249,7 +1255,7 @@ def charge_cancellation():
         print(f"PRODUCTION_PAYMENT_FAILURE: {result.errors}")
         return jsonify({"error": result.errors}), 400
     except Exception as e:
-        print(f"PRODUCTION_CRITICAL_ERROR: {str(e)}")
+        print(f"PRODUCTION_CRITICAL_ERROR: {e!s}")
         return jsonify({"error": str(e)}), 500
 
 def _send_textbee_sms(phone_number, message_body):
@@ -1270,9 +1276,7 @@ def _send_textbee_sms(phone_number, message_body):
     # TextBee V1 API requires the '+' prefix for E.164 formatting.
     if len(digits) == 10:
         clean_phone = "+1" + digits
-    elif len(digits) == 11 and digits.startswith("1"):
-        clean_phone = "+" + digits
-    elif len(digits) > 11:
+    elif (len(digits) == 11 and digits.startswith("1")) or len(digits) > 11:
         clean_phone = "+" + digits
     elif len(digits) == 9:
         # Handle the specific case seen in your test: 845330406 is 9 digits.
@@ -1835,7 +1839,9 @@ def _handle_intake_submission_background(data, pdf_output):
 
     if booking_date_raw and booking_time_raw:
         try:
-            parsed_date_time = datetime.datetime.strptime(f"{booking_date_raw} {booking_time_raw}", '%B %d, %Y %I:%M %p')
+            parsed_date_time = datetime.datetime.strptime(
+                f"{booking_date_raw} {booking_time_raw}", '%B %d, %Y %I:%M %p'
+            ).replace(tzinfo=timezone.utc)
             filename_date = parsed_date_time.strftime('%m-%d-%Y')
             filename_time = parsed_date_time.strftime('%I%M%p')
         except ValueError:
@@ -2012,7 +2018,7 @@ def _handle_intake_submission_background(data, pdf_output):
         if email_sent:
             print("BACKGROUND_TASK: Successfully sent intake form email to admin.")
         else:
-            raise Exception("send_email returned False for intake form.")
+            raise RuntimeError("send_email returned False for intake form.")
     except Exception as e:
         print(f"ERROR (background): Failed to send intake form email: {e}")
 

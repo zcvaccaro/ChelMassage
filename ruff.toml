@@ -1,0 +1,7 @@
+# Linter config for Chel Massage.
+# BLE001 (blind `except Exception`) is ignored on purpose: many handlers
+# intentionally catch broadly so booking, cron, and email flows stay resilient.
+# Do not "fix" those by narrowing exceptions — that can change runtime behavior.
+
+[lint]
+ignore = ["BLE001"]
