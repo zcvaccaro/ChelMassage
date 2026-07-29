@@ -235,6 +235,51 @@ def safe_append_description(description, tag, content):
         return description
     return f"{description.rstrip()}\n\n{tag}\n{content}".strip()
 
+def build_soap_form_url(summary, booking_date_formatted, booking_time_formatted, comments, calendar_event_id):
+    """Builds the pre-filled Google SOAP form URL for an appointment."""
+    soap_form_base = "https://docs.google.com/forms/d/1maaknBVFgUMKRQQ1Sc47wOhNc99j77icwZG-jDK_I90/viewform"
+    soap_query = {
+        'entry.971462728': summary,
+        'entry.353806943': f"{booking_date_formatted} {booking_time_formatted}",
+        'entry.804944025': (comments or '').replace('Comments: ', ''),
+        'entry.175378350': calendar_event_id
+    }
+    return f"{soap_form_base}?{urlencode(soap_query)}"
+
+def build_intake_form_url(first_name, last_name, booking_date_formatted, booking_time_formatted,
+                          email, phone, comments, calendar_event_id, dob='', address=''):
+    """Builds the client intake form URL tied to a calendar event id."""
+    intake_params = {
+        'firstName': first_name or '',
+        'lastName': last_name or '',
+        'date': booking_date_formatted,
+        'time': booking_time_formatted,
+        'email': email or '',
+        'phone': phone or '',
+        'comments': (comments or '').replace('Comments: ', ''),
+        'calendarId': calendar_event_id,
+        'dob': dob or '',
+        'address': address or ''
+    }
+    return url_for('intake_page', _external=True) + '?' + urlencode(intake_params)
+
+def parse_appointment_description_metadata(description):
+    """Extracts Phone/Email/Duration/Service/Comments from a calendar event description."""
+    desc = description or ""
+    phone_match = re.search(r'phone:\s*([\+\d\s\-\(\)]+)', desc, re.IGNORECASE)
+    email_match = re.search(r'email:\s*([^\s<\n\r]+)', desc, re.IGNORECASE)
+    duration_match = re.search(r'duration:\s*([^<\n\r]+)', desc, re.IGNORECASE)
+    service_match = re.search(r'service:\s*([^<\n\r]+)', desc, re.IGNORECASE)
+    comments_match = re.search(r'comments:\s*([^<\n\r]+)', desc, re.IGNORECASE)
+
+    return {
+        "phone": phone_match.group(1).strip() if phone_match else "",
+        "email": email_match.group(1).strip() if email_match else "",
+        "duration": duration_match.group(1).strip() if duration_match else "",
+        "service": service_match.group(1).strip() if service_match else "",
+        "comments": comments_match.group(1).strip() if comments_match else "",
+    }
+
 def verify_textbee_signature(raw_payload, signature, secret):
     """Verifies the HMAC_SHA256 signature from TextBee."""
     if not secret or not signature:
@@ -1450,7 +1495,7 @@ def trigger_reminders():
                     f"Hi {first_name}! This is a reminder of your {duration} {service_type} appointment "
                     f"tomorrow {formatted_date} at {formatted_time} at Chelsea Vaccaro Therapeutic Massage. "
                     "If you have not done so already, please fill out your client intake form via the link "
-                    "within your booking confirmation email. I look forward to seeing you! -Chelsea"
+                    "within your booking confirmation or reminder email. I look forward to seeing you! -Chelsea"
                 )
 
                 debug_counts["sms_attempted"] += 1
@@ -1470,6 +1515,273 @@ def trigger_reminders():
         return jsonify(response_payload)
     except Exception as e:
         print(f"CRON ERROR: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/cron/email-reminders', methods=['GET'])
+def trigger_email_reminders():
+    """
+    Cron endpoint to send appointment reminder emails ~26 hours before appointments.
+    Separate from SMS reminders. Requires Email, Duration, and Service in the event description.
+    For manual bookings (no existing SOAP link), also appends intake + SOAP links.
+    """
+    cron_key = os.getenv("CRON_SECRET_KEY")
+    if cron_key and request.args.get('key') != cron_key:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    now = datetime.datetime.now(timezone.utc)
+    time_min = now
+    time_max = now + timedelta(hours=48)
+
+    service = get_calendar_service()
+    if not service:
+        print("EMAIL CRON ERROR: Google Calendar service unavailable.")
+        return jsonify({"error": "Google Calendar service unavailable"}), 500
+
+    debug_mode = request.args.get('debug', '').lower() in ('1', 'true', 'yes')
+
+    try:
+        sent_count = 0
+        local_tz = ZoneInfo(LOCAL_TIMEZONE)
+        processed_keys = set()
+        debug_counts = {
+            "events_seen": 0,
+            "skipped_open_for_bookings": 0,
+            "skipped_all_day": 0,
+            "skipped_already_sent": 0,
+            "skipped_missing_required_fields": 0,
+            "skipped_outside_time_window": 0,
+            "mark_sent_conflicts": 0,
+            "email_attempted": 0,
+            "email_failed": 0,
+            "manual_links_added": 0,
+            "last_error": None
+        }
+
+        soap_tag = "--- ADMIN: SOAP NOTE LINK ---"
+        intake_link_tag = "--- ADMIN: CLIENT INTAKE FORM ---"
+        email_sent_tag_prefix = "EMAIL_REMINDER_SENT_FOR: "
+
+        for calendar_id in [PRIMARY_CALENDAR_ID]:
+            res = service.events().list(
+                calendarId=calendar_id,
+                timeMin=time_min.isoformat(),
+                timeMax=time_max.isoformat(),
+                singleEvents=True,
+                orderBy='startTime'
+            ).execute()
+
+            for event in res.get('items', []):
+                summary = event.get('summary', '')
+                if summary.lower().strip() == 'open for bookings':
+                    debug_counts["skipped_open_for_bookings"] += 1
+                    continue
+                if summary.upper().startswith('WAITLIST:'):
+                    debug_counts["skipped_open_for_bookings"] += 1
+                    continue
+
+                debug_counts["events_seen"] += 1
+
+                current_start_iso = event['start'].get('dateTime')
+                if not current_start_iso:
+                    debug_counts["skipped_all_day"] += 1
+                    continue
+
+                norm_current = datetime.datetime.fromisoformat(
+                    current_start_iso.replace('Z', '+00:00')
+                ).isoformat()
+
+                event_key = f"{event['id']}_{norm_current}"
+                if event_key in processed_keys:
+                    continue
+                processed_keys.add(event_key)
+
+                specific_sent_tag = f"{email_sent_tag_prefix}{norm_current}"
+
+                time.sleep(random.uniform(0.1, 1.2))
+
+                try:
+                    fresh_event = execute_with_retry(
+                        service.events().get(calendarId=calendar_id, eventId=event['id'])
+                    )
+                    fresh_desc = fresh_event.get('description', '') or ""
+
+                    if (
+                        specific_sent_tag in fresh_desc
+                        or f"{email_sent_tag_prefix}{current_start_iso}" in fresh_desc
+                    ):
+                        debug_counts["skipped_already_sent"] += 1
+                        print(
+                            f"DEBUG EMAIL CRON: Skipping '{summary}' (ID: {event['id']}) - "
+                            f"Email reminder already sent for {norm_current}."
+                        )
+                        continue
+                except Exception as e:
+                    print(f"ERROR: Failed to verify email-reminder status for event {event['id']}: {e}")
+                    continue
+
+                meta = parse_appointment_description_metadata(fresh_desc)
+                client_email = meta["email"]
+                duration = meta["duration"]
+                service_type = meta["service"]
+                phone = meta["phone"]
+                comments = meta["comments"]
+
+                if not client_email or not duration or not service_type:
+                    debug_counts["skipped_missing_required_fields"] += 1
+                    print(
+                        f"DEBUG EMAIL CRON: Skipping '{summary}' (ID: {event['id']}) - "
+                        f"missing Email/Duration/Service metadata."
+                    )
+                    continue
+
+                start_dt = datetime.datetime.fromisoformat(current_start_iso.replace('Z', '+00:00'))
+                TARGET_HOURS = 26
+                TOLERANCE = 1.0
+                hours_until_appt = (start_dt - now).total_seconds() / 3600
+
+                if abs(hours_until_appt - TARGET_HOURS) > TOLERANCE:
+                    debug_counts["skipped_outside_time_window"] += 1
+                    print(
+                        f"DEBUG EMAIL CRON: Skipping '{summary}' (ID: {event['id']}) - "
+                        f"hours_until_appt={hours_until_appt:.2f}, target={TARGET_HOURS}±{TOLERANCE}."
+                    )
+                    continue
+
+                local_start = start_dt.astimezone(local_tz)
+                booking_date_formatted = local_start.strftime('%B %d, %Y')
+                booking_time_formatted = local_start.strftime('%I:%M %p')
+                formatted_date = local_start.strftime('%B %d')
+                formatted_time = local_start.strftime('%I:%M %p')
+
+                client_full_name = (
+                    summary.split(" for ")[-1].strip()
+                    if " for " in summary.lower()
+                    else "Valued Client"
+                )
+                name_parts = client_full_name.split(' ')
+                first_name = name_parts[0] if name_parts else "Valued"
+                last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
+
+                calendar_event_id = event['id']
+                intake_url = build_intake_form_url(
+                    first_name=first_name,
+                    last_name=last_name,
+                    booking_date_formatted=booking_date_formatted,
+                    booking_time_formatted=booking_time_formatted,
+                    email=client_email,
+                    phone=phone,
+                    comments=comments,
+                    calendar_event_id=calendar_event_id
+                )
+
+                # Manual bookings only: if SOAP link is missing, append intake + SOAP links.
+                # Online bookings already have the SOAP tag, so their descriptions are left alone.
+                working_desc = fresh_desc
+                if soap_tag not in working_desc:
+                    soap_url = build_soap_form_url(
+                        summary=summary,
+                        booking_date_formatted=booking_date_formatted,
+                        booking_time_formatted=booking_time_formatted,
+                        comments=comments,
+                        calendar_event_id=calendar_event_id
+                    )
+                    working_desc = safe_append_description(
+                        working_desc, soap_tag, f'<a href="{soap_url}">SOAP Form</a>'
+                    )
+                    working_desc = safe_append_description(
+                        working_desc, intake_link_tag, f'<a href="{intake_url}">Client Intake Form</a>'
+                    )
+                    debug_counts["manual_links_added"] += 1
+                    print(
+                        f"DEBUG EMAIL CRON: Added intake/SOAP links for manual booking "
+                        f"'{summary}' (ID: {calendar_event_id})."
+                    )
+
+                # Atomic mark: write EMAIL_REMINDER_SENT_FOR before sending
+                try:
+                    clean_lines = [
+                        line for line in working_desc.split('\n')
+                        if not line.strip().startswith(email_sent_tag_prefix)
+                    ]
+                    locked_desc = "\n".join(clean_lines).rstrip() + f"\n{specific_sent_tag}"
+                    patch_event_description_with_etag(
+                        service=service,
+                        calendar_id=calendar_id,
+                        event_id=calendar_event_id,
+                        description=locked_desc,
+                        etag=fresh_event.get('etag')
+                    )
+                    verified_event = execute_with_retry(
+                        service.events().get(calendarId=calendar_id, eventId=calendar_event_id)
+                    )
+                    verified_desc = verified_event.get('description', '') or ""
+                    if specific_sent_tag not in verified_desc:
+                        print(
+                            f"ERROR: EMAIL_REMINDER_SENT tag did not persist on '{summary}' "
+                            f"(ID: {calendar_event_id}); skipping email to avoid duplicates."
+                        )
+                        continue
+                    print(f"DEBUG EMAIL CRON: Marked event '{summary}' as email-reminder-sent.")
+                except HttpError as e:
+                    if e.resp.status == 412:
+                        debug_counts["mark_sent_conflicts"] += 1
+                        print(
+                            f"DEBUG EMAIL CRON: Conflict detected for '{summary}'. "
+                            "Another worker already processed this."
+                        )
+                        continue
+                    print(f"ERROR: Failed to lock email reminder for event {calendar_event_id}: {e}")
+                    continue
+                except Exception as e:
+                    print(f"ERROR: Failed to lock email reminder for event {calendar_event_id}: {e}")
+                    continue
+
+                esc = html.escape
+                email_subject = "Appointment Reminder - Chelsea Vaccaro Therapeutic Massage"
+                email_body_html = f"""
+                <html>
+                <head>
+                    <style>
+                        .email-cta:hover {{
+                            background-color: #ffffff !important;
+                            color: #000000 !important;
+                        }}
+                    </style>
+                </head>
+                <body>
+                <p>Hi {esc(first_name)}!</p>
+                <p>This is a reminder of your <strong>{esc(duration)} {esc(service_type)}</strong> appointment
+                tomorrow <strong>{esc(formatted_date)}</strong> at <strong>{esc(formatted_time)}</strong>
+                at Chelsea Vaccaro Therapeutic Massage.</p>
+                <p>If you have not done so already, please fill out your client intake form here:</p>
+                <p><a href="{intake_url}" class="email-cta" style="display: inline-block; padding: 12px 24px; border: 1px solid #000; background-color: #000; color: #fff; font-size: 1rem; font-weight: bold; text-decoration: none; border-radius: 50px;">Complete Intake Form</a></p>
+                <p>I look forward to seeing you!<br>-Chelsea</p>
+                </body>
+                </html>
+                """
+
+                debug_counts["email_attempted"] += 1
+                email_success, email_error = send_email(client_email, email_subject, email_body_html)
+                if email_success:
+                    sent_count += 1
+                    print(
+                        f"INFO: EMAIL REMINDER SENT: to {client_email} for '{summary}' "
+                        f"(ID: {calendar_event_id})"
+                    )
+                else:
+                    debug_counts["email_failed"] += 1
+                    debug_counts["last_error"] = email_error
+                    print(
+                        f"WARNING: Email reminder failed for '{summary}' "
+                        f"(ID: {calendar_event_id}) with error: {email_error}"
+                    )
+
+        response_payload = {"status": "success", "email_reminders_sent": sent_count}
+        if debug_mode:
+            response_payload["debug"] = debug_counts
+        return jsonify(response_payload)
+    except Exception as e:
+        print(f"EMAIL CRON ERROR: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/webhooks/textbee', methods=['POST'])
