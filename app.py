@@ -111,8 +111,13 @@ if not os.path.exists(SERVICE_ACCOUNT_FILE):
 
 app = Flask(__name__, template_folder='templates', static_folder='static') # Flask app initialized after all global configuration is loaded
 
-# Thread-local storage for Google API services to ensure thread safety in background tasks
-_google_service_cache = threading.local()
+# Shared process-wide cache for Google API service clients.
+# Previously this used threading.local(), which forced every new background thread
+# (booking/intake/waitlist/onsite) to rebuild discovery clients and contributed to
+# the stair-step memory growth seen on Render's 512MB plan. A single shared cache
+# under a lock keeps clients reusable across threads without changing API behavior.
+_google_service_cache = {}
+_google_service_lock = threading.Lock()
 _google_creds_instance = None # To store the credentials instance once loaded
 
 def _get_credentials():
@@ -171,20 +176,28 @@ def _get_credentials():
 
 def get_google_service(service_name, version):
     """Unified helper to get a Google API service, caching the built service objects."""
-    if not hasattr(_google_service_cache, 'services'):
-        _google_service_cache.services = {}
-
     cache_key = f"{service_name}_{version}"
-    if cache_key not in _google_service_cache.services:
+
+    # Fast path: reuse an already-built client without taking the lock.
+    cached = _google_service_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    with _google_service_lock:
+        # Re-check inside the lock in case another thread built it first.
+        cached = _google_service_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         creds = _get_credentials()
         if creds:
-            _google_service_cache.services[cache_key] = build(service_name, version, credentials=creds)
+            service = build(service_name, version, credentials=creds)
+            _google_service_cache[cache_key] = service
             print(f"DEBUG: Built and cached {service_name} service.")
-        else:
-            print(f"ERROR: Could not get credentials to build {service_name} service.")
-            return None
+            return service
 
-    return _google_service_cache.services.get(cache_key)
+        print(f"ERROR: Could not get credentials to build {service_name} service.")
+        return None
 
 def get_calendar_service():
     return get_google_service('calendar', 'v3')

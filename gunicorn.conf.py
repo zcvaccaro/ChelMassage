@@ -13,3 +13,11 @@ threads = 2
 
 # Increase timeout to prevent workers from being killed during slow API initializations
 timeout = 120
+
+# Periodically recycle the worker to release memory fragmentation from Pillow/FPDF
+# byte buffers over time. This does NOT limit concurrency or reject/queue requests -
+# gunicorn starts the replacement worker on the same listening socket before the
+# old one fully exits, so there is no downtime or dropped requests.
+# jitter staggers the restart point so it isn't perfectly predictable/synchronized.
+max_requests = 500
+max_requests_jitter = 50
