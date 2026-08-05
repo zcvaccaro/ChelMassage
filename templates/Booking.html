@@ -133,7 +133,8 @@
           <div class="form-group agreement-group" style="margin-top: 1.5rem;">
             <input type="checkbox" id="authCharge" name="authCharge" required>
             <span class="agreement-text" style="font-size: 0.9rem; text-align: center;">
-                <strong>I authorize Chelsea Vaccaro Therapeutic Massage to store my card on file and charge cancellation or no-show fees according to policy.</strong>
+                <strong>I authorize Chelsea Vaccaro Therapeutic Massage to store my card on file and charge cancellation or no-show fees according to policy, and I agree to the
+                <button type="button" id="terms-conditions-btn" class="link-button">Terms and Conditions</button>.</strong>
             </span>
             <label for="authCharge" class="checkbox-label"></label>
             <small id="auth-error-message" class="error-message" style="display: none; color: var(--accent-color-dark); margin-top: 5px;">You must authorize the card hold to continue.</small>
@@ -165,6 +166,22 @@
       </ul>
       <p><em>Note: The first time a client does not show up for their appointment, they will not be charged. However, the above policy will apply to every missed appointment thereafter.</em></p>
       <p>Any charges incurred must be paid prior to your next scheduled appointment. I appreciate your understanding.</p>
+    </div>
+  </div>
+
+  <!-- Terms & Conditions Modal -->
+  <div id="terms-conditions-modal" class="modal-overlay">
+    <div class="modal-content">
+      <button type="button" id="close-terms-modal-btn" class="close-modal-btn" aria-label="Close">&times;</button>
+      <h4>Terms &amp; Conditions</h4>
+      <br>
+      <p>I understand that the massage therapy I receive is provided for the basic purpose of relaxation and relief of muscular tension.
+        If I experience any pain or discomfort during this session, I will immediately inform the therapist so that the pressure
+        and/or strokes may be adjusted to my level of comfort. I further understand that massage therapy should not be construed as a
+        substitute for medical examination, diagnosis, or treatment and that I should see a physician, chiropractor, or other qualified medical
+        specialist for any mental or physical ailment of which I am aware. I understand that massage therapists are not qualified to perform spinal
+        or skeletal adjustments, diagnose, prescribe, or treat any physical or mental illness, and that nothing said in the course of the
+        session given should be construed as such.</p>
     </div>
   </div>
 

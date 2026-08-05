@@ -563,6 +563,29 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // --- 4b. Terms & Conditions Modal Logic ---
+    const termsModal = document.getElementById('terms-conditions-modal');
+    const openTermsBtn = document.getElementById('terms-conditions-btn');
+    const closeTermsBtn = document.getElementById('close-terms-modal-btn');
+
+    if (termsModal && openTermsBtn && closeTermsBtn) {
+        openTermsBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            termsModal.style.display = 'flex';
+        });
+
+        closeTermsBtn.addEventListener('click', () => {
+            termsModal.style.display = 'none';
+        });
+
+        termsModal.addEventListener('click', (e) => {
+            if (e.target === termsModal) {
+                termsModal.style.display = 'none';
+            }
+        });
+    }
+
     // --- 5. Pre-select service from URL ---
     const preselectService = () => {
         const service = urlParams.get('service');
