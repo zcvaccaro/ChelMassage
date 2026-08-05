@@ -2081,22 +2081,25 @@ def submit_intake():
         # --- Personal Information ---
         write_section_header("Personal Information")
         write_line("Name:", client_name)
-        write_line("DOB:", data.get('dob', 'N/A'))
+        write_line("DOB:", data.get('dob') or 'N/A')
+        write_line("Address:", data.get('address') or 'N/A', is_multiline=True)
+        write_line("Occupation:", data.get('occupation') or 'N/A', is_multiline=True)
 
         # --- Booking & Visit Information ---
         write_section_header("Visit Information")
-        write_line("Booking:", f"{data.get('bookingDate', 'N/A')} at {data.get('bookingTime', 'N/A')}")
-        write_line("Email:", data.get('email', 'N/A'))
-        write_line("Phone:", data.get('phone', 'N/A'))
-        write_line("Reason for Visit:", data.get('reason', 'No comments provided.'), is_multiline=True)
+        write_line("Service:", data.get('serviceType') or 'N/A')
+        write_line("Booking:", f"{data.get('bookingDate') or 'N/A'} at {data.get('bookingTime') or 'N/A'}")
+        write_line("Email:", data.get('email') or 'N/A')
+        write_line("Phone:", data.get('phone') or 'N/A')
+        write_line("Intention for Treatment:", data.get('reason') or 'No comments provided.', is_multiline=True)
 
         # --- Medical History ---
         write_section_header("Medical History")
         conditions = data.get('conditions')
         if isinstance(conditions, list):
             conditions = ', '.join(conditions)
-        write_line("Conditions:", conditions, is_multiline=True)
-        write_line("Allergies:", data.get('allergies', 'N/A'), is_multiline=True)
+        write_line("Conditions:", conditions or 'N/A', is_multiline=True)
+        write_line("Allergies:", data.get('allergies') or 'N/A', is_multiline=True)
         pdf.ln(5)
 
         # --- Embed Body Chart Images Side-by-Side and Scaled ---
