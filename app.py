@@ -299,6 +299,29 @@ def parse_appointment_description_metadata(description):
         "comments": comments_match.group(1).strip() if comments_match else "",
     }
 
+def description_has_sms_reminder_tag(description, *timestamps):
+    """
+    Returns True if an SMS reminder marker exists for one of the timestamps.
+    IMPORTANT: must NOT treat EMAIL_REMINDER_SENT_FOR as an SMS tag.
+    ('REMINDER_SENT_FOR:' is a substring of 'EMAIL_REMINDER_SENT_FOR:').
+    """
+    valid_timestamps = [ts for ts in timestamps if ts]
+    if not valid_timestamps:
+        return False
+
+    for raw_line in (description or "").splitlines():
+        line = raw_line.strip()
+        if line.startswith("EMAIL_REMINDER_SENT_FOR:"):
+            continue
+        if (
+            line.startswith("SMS_REMINDER_SENT_FOR:")
+            or line.startswith("REMINDER_SENT_FOR:")
+            or line.startswith("REMINDER_LOCKED_FOR:")
+        ):
+            if any(ts in line for ts in valid_timestamps):
+                return True
+    return False
+
 def verify_textbee_signature(raw_payload, signature, secret):
     """Verifies the HMAC_SHA256 signature from TextBee."""
     if not secret or not signature:
@@ -1405,7 +1428,8 @@ def trigger_reminders():
                     continue
                 processed_keys.add(event_key)
 
-                reminder_sent_tag_prefix = "REMINDER_SENT_FOR: "
+                reminder_sent_tag_prefix = "SMS_REMINDER_SENT_FOR: "
+                legacy_reminder_sent_tag_prefix = "REMINDER_SENT_FOR: "
                 reminder_lock_tag_prefix = "REMINDER_LOCKED_FOR: "
                 specific_sent_tag = f"{reminder_sent_tag_prefix}{norm_current}"
 
@@ -1415,13 +1439,11 @@ def trigger_reminders():
                 # 2. ATOMIC LOCK: Re-fetch the event to check for a tag added by another worker
                 try:
                     fresh_event = execute_with_retry(service.events().get(calendarId=calendar_id, eventId=event['id']))
-                    fresh_desc = fresh_event.get('description', '')
+                    fresh_desc = fresh_event.get('description', '') or ""
 
-                    # Skip if a reminder was already sent for THIS start time
-                    if (
-                        specific_sent_tag in fresh_desc
-                        or f"{reminder_sent_tag_prefix}{current_start_iso}" in fresh_desc
-                    ):
+                    # Skip if an SMS reminder was already sent for THIS start time.
+                    # Do not treat EMAIL_REMINDER_SENT_FOR as an SMS sent marker.
+                    if description_has_sms_reminder_tag(fresh_desc, norm_current, current_start_iso):
                         debug_counts["skipped_already_sent"] += 1
                         print(f"DEBUG CRON: Skipping '{summary}' (ID: {event['id']}) - Reminder already sent for {norm_current}.")
                         continue
@@ -1462,16 +1484,24 @@ def trigger_reminders():
                     continue
 
                 # 3. ATOMIC SEND MARK:
-                # Mark `REMINDER_SENT_FOR` first under ETag, then send SMS.
+                # Mark SMS reminder sent first under ETag, then send SMS.
                 # If SMS fails, keep the tag so cron does not send duplicate reminders.
                 try:
-                    # Remove any previous sent/lock markers for this appointment,
-                    # then write the "sent" marker exactly once.
-                    clean_lines = [
-                        line for line in fresh_desc.split('\n')
-                        if not line.strip().startswith(reminder_sent_tag_prefix)
-                        and not line.strip().startswith(reminder_lock_tag_prefix)
-                    ]
+                    # Remove any previous SMS sent/lock markers for this appointment,
+                    # then write the "sent" marker exactly once. Never strip EMAIL_ tags.
+                    clean_lines = []
+                    for line in fresh_desc.split('\n'):
+                        stripped = line.strip()
+                        if stripped.startswith("EMAIL_REMINDER_SENT_FOR:"):
+                            clean_lines.append(line)
+                            continue
+                        if (
+                            stripped.startswith(reminder_sent_tag_prefix)
+                            or stripped.startswith(legacy_reminder_sent_tag_prefix)
+                            or stripped.startswith(reminder_lock_tag_prefix)
+                        ):
+                            continue
+                        clean_lines.append(line)
                     locked_desc = "\n".join(clean_lines).rstrip() + f"\n{specific_sent_tag}"
                     patch_event_description_with_etag(
                         service=service,
@@ -1483,10 +1513,10 @@ def trigger_reminders():
                     verified_event = execute_with_retry(
                         service.events().get(calendarId=calendar_id, eventId=event['id'])
                     )
-                    verified_desc = verified_event.get('description', '')
-                    if specific_sent_tag not in verified_desc:
+                    verified_desc = verified_event.get('description', '') or ""
+                    if not description_has_sms_reminder_tag(verified_desc, norm_current, current_start_iso):
                         print(
-                            f"ERROR: REMINDER_SENT tag did not persist on '{summary}' "
+                            f"ERROR: SMS_REMINDER_SENT tag did not persist on '{summary}' "
                             f"(ID: {event['id']}); skipping SMS to avoid duplicates."
                         )
                         continue
