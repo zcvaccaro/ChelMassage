@@ -111,6 +111,15 @@ if not os.path.exists(SERVICE_ACCOUNT_FILE):
 
 app = Flask(__name__, template_folder='templates', static_folder='static') # Flask app initialized after all global configuration is loaded
 
+@app.after_request
+def add_static_cache_headers(response):
+    """Let browsers/CDN cache static assets so Render isn't re-hit for every image."""
+    if request.path.startswith('/static/'):
+        # Filenames change when assets are updated (e.g. Hero.png -> Hero.jpg),
+        # so long-lived caching is safe and greatly reduces outbound bandwidth.
+        response.headers['Cache-Control'] = 'public, max-age=2592000, immutable'
+    return response
+
 # Shared process-wide cache for Google API service clients.
 # Previously this used threading.local(), which forced every new background thread
 # (booking/intake/waitlist/onsite) to rebuild discovery clients and contributed to
