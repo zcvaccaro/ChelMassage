@@ -255,6 +255,120 @@ def norm_email(email):
     """Strips and lowercases email addresses for comparison."""
     return email.strip().lower() if email else ""
 
+def parse_visit_count(value):
+    """Parse Clients!G visit count; blank or invalid values count as 0."""
+    if value is None or value == '':
+        return 0
+    try:
+        return max(0, int(str(value).strip()))
+    except (TypeError, ValueError):
+        return 0
+
+def format_visit_ordinal(n):
+    """Format 1 -> '1st', 2 -> '2nd', 3 -> '3rd', 4 -> '4th', etc."""
+    n = int(n)
+    if 10 <= (n % 100) <= 20:
+        suffix = 'th'
+    else:
+        suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')
+    return f"{n}{suffix}"
+
+VISIT_DESCRIPTION_TAG = "--- VISIT ---"
+VISIT_COUNTED_TAG = "VISIT_COUNTED"
+
+def upsert_visit_in_description(description, visit_number):
+    """Replace or append the --- VISIT --- block with the given visit ordinal."""
+    description = description or ""
+    content = f"{format_visit_ordinal(visit_number)} visit"
+    description = re.sub(
+        rf"\n*{re.escape(VISIT_DESCRIPTION_TAG)}\n[^\n]*",
+        "",
+        description,
+        flags=re.IGNORECASE,
+    ).rstrip()
+    return f"{description}\n\n{VISIT_DESCRIPTION_TAG}\n{content}".strip()
+
+def description_has_visit_counted_tag(description):
+    return VISIT_COUNTED_TAG in (description or "")
+
+def append_visit_counted_tag(description):
+    description = (description or "").rstrip()
+    if VISIT_COUNTED_TAG in description:
+        return description
+    return f"{description}\n\n{VISIT_COUNTED_TAG}".strip()
+
+def event_belongs_to_client(event, client_email, first_name='', last_name=''):
+    """Match a calendar event to a client by description email or summary name."""
+    summary = (event.get('summary') or '').strip()
+    lower_summary = summary.lower()
+    if lower_summary == 'open for bookings' or summary.upper().startswith('WAITLIST:'):
+        return False
+    if event.get('status') == 'cancelled':
+        return False
+    if 'dateTime' not in (event.get('start') or {}):
+        return False
+
+    desc = event.get('description') or ''
+    email_match = re.search(r'email:\s*([^\s<\n\r]+)', desc, re.IGNORECASE)
+    event_email = norm_email(email_match.group(1)) if email_match else ''
+    target_email = norm_email(client_email)
+    if target_email and event_email and event_email == target_email:
+        return True
+
+    full_name = " ".join(f"{first_name or ''} {last_name or ''}".split()).strip().lower()
+    if full_name and full_name in lower_summary:
+        return True
+    return False
+
+def list_client_appointments(service, calendar_id, client_email, first_name, last_name, time_min, time_max):
+    """Return timed appointment events for a client in [time_min, time_max), sorted by start."""
+    events = []
+    page_token = None
+    while True:
+        result = execute_with_retry(service.events().list(
+            calendarId=calendar_id,
+            timeMin=time_min.isoformat(),
+            timeMax=time_max.isoformat(),
+            singleEvents=True,
+            orderBy='startTime',
+            pageToken=page_token,
+            maxResults=2500
+        ))
+        for event in result.get('items', []):
+            if event_belongs_to_client(event, client_email, first_name, last_name):
+                events.append(event)
+        page_token = result.get('nextPageToken')
+        if not page_token:
+            break
+
+    def _start_key(ev):
+        return parse_iso_datetime(ev['start']['dateTime'])
+
+    events.sort(key=_start_key)
+    return events
+
+def renumber_client_future_visit_labels(service, calendar_id, client_email, first_name, last_name, completed_visits):
+    """
+    Label each upcoming appointment as (completed+1)th, (completed+2)th, ...
+    Sheet G stays at completed_visits; only calendar descriptions are updated.
+    """
+    now = datetime.datetime.now(timezone.utc)
+    future_end = now + timedelta(days=180)
+    future_events = list_client_appointments(
+        service, calendar_id, client_email, first_name, last_name, now, future_end
+    )
+    for index, event in enumerate(future_events, start=1):
+        visit_number = completed_visits + index
+        old_desc = event.get('description') or ''
+        new_desc = upsert_visit_in_description(old_desc, visit_number)
+        if new_desc != old_desc.strip():
+            execute_with_retry(service.events().patch(
+                calendarId=calendar_id,
+                eventId=event['id'],
+                body={'description': new_desc}
+            ))
+    return len(future_events)
+
 def safe_append_description(description, tag, content):
     """Appends a tagged section to a description only if the tag isn't present."""
     if not description:
@@ -698,9 +812,10 @@ def lookup_client():
         search_phone = "".join(filter(str.isdigit, identifier))
 
         # 1. Search the primary "Clients" sheet
+        # Layout: A-F profile, G Visits, H Square Customer ID, I Square Card ID
         clients_result = service.spreadsheets().values().get(
             spreadsheetId=SPREADSHEET_ID,
-            range='Clients!A:H'
+            range='Clients!A:I'
         ).execute()
         clients_rows = clients_result.get('values', [])
 
@@ -711,8 +826,8 @@ def lookup_client():
             row_phone = "".join(filter(str.isdigit, row[3])) if len(row) > 3 else ""
 
             if (row_email == search_email) or (search_phone and row_phone == search_phone):
-                # Check if square_card_id (Column H) exists
-                square_card_id = row[7] if len(row) > 7 else ""
+                # Check if square_card_id (Column I) exists
+                square_card_id = row[8] if len(row) > 8 else ""
                 full_name_to_match = f"{row[0]} {row[1]}".strip().lower()
 
                 # --- Fetch latest health info from Intake Forms ---
@@ -973,13 +1088,14 @@ def book_appointment():
                 normalized_email = norm_email(client_email)
                 result = sheets_service.spreadsheets().values().get(
                     spreadsheetId=SPREADSHEET_ID,
-                    range='Clients!A:H'
+                    range='Clients!A:I'
                 ).execute()
                 rows = result.get('values', [])
                 for row_val in rows:
                     if row_val and len(row_val) > 2 and row_val[2].strip().lower() == normalized_email:
-                        square_customer_id = row_val[6] if len(row_val) > 6 else ""
-                        square_card_id = row_val[7] if len(row_val) > 7 else ""
+                        # H = Square Customer ID, I = Square Card ID
+                        square_customer_id = row_val[7] if len(row_val) > 7 else ""
+                        square_card_id = row_val[8] if len(row_val) > 8 else ""
                         break
 
             if not square_card_id:
@@ -1103,55 +1219,50 @@ def book_appointment():
     # --- Define Async Task for Emails and Sheets ---
     def _handle_booking_background(square_customer_id, square_card_id):
         service = get_calendar_service()
-        # Update Calendar description with Square IDs for Admin reference
-        if square_customer_id:
-            customer_link = f"https://squareup.com/dashboard/customers/directory/customer/{square_customer_id}"
-            square_tag = "--- ADMIN: SQUARE INFO ---"
-            square_content = f"Customer Profile: <a href=\"{customer_link}\">Square Card Link</a>"
-            try:
-                # Fetch latest description again to include the SOAP link just added
-                latest_event = execute_with_retry(service.events().get(calendarId=PRIMARY_CALENDAR_ID, eventId=calendar_event_id))
-                final_desc = latest_event.get('description', '')
-                execute_with_retry(service.events().patch(calendarId=PRIMARY_CALENDAR_ID, eventId=calendar_event_id, body={'description': safe_append_description(final_desc, square_tag, square_content)}))
-            except Exception as e:
-                print(f"ERROR: Failed to update calendar event with Square IDs: {e}")
+        # Sheet G = completed visits only. New bookings do NOT increment G.
+        # Calendar events are labeled with the visit number that appointment will be.
+        completed_visits = 0
+        client_first = client_info.get('first_name', '')
+        client_last = client_info.get('last_name', '')
 
-        # 1. Update "Clients" Sheet immediately upon booking
+        # 1. Update "Clients" Sheet (profile + Square IDs). Do not bump Visits yet.
+        # Layout: A-F profile, G Visits (completed), H Square Customer ID, I Square Card ID
         try:
             sheets_service = get_sheets_service()
             if sheets_service and client_email:
                 normalized_email = norm_email(client_email)
 
-                # Check for existing client
                 result = sheets_service.spreadsheets().values().get(
                     spreadsheetId=SPREADSHEET_ID,
-                    range='Clients!C:C'
+                    range='Clients!A:I'
                 ).execute()
+                rows = result.get('values', [])
 
-                existing_emails = [
-                    norm_email(item) for sublist in result.get('values', [])
-                    for item in sublist if item and isinstance(item, str)
-                ]
+                target_row_index = -1
+                for idx, row_val in enumerate(rows):
+                    if row_val and len(row_val) > 2 and norm_email(row_val[2]) == normalized_email:
+                        target_row_index = idx + 1  # Sheets is 1-indexed
+                        completed_visits = parse_visit_count(row_val[6] if len(row_val) > 6 else '')
+                        break
 
-                if normalized_email not in existing_emails:
-                    print(f"BACKGROUND_TASK: New client booking: {client_email}. Adding to 'Clients' sheet.")
-                    # Fetch sheet ID for prepend
+                if target_row_index == -1:
+                    print(f"BACKGROUND_TASK: New client booking: {client_email}. Adding to 'Clients' sheet (Visits=0 until completed).")
                     spreadsheet = sheets_service.spreadsheets().get(spreadsheetId=SPREADSHEET_ID).execute()
                     client_sheet_metadata = next(s for s in spreadsheet.get('sheets', []) if s['properties']['title'] == 'Clients')
                     client_sheet_id = client_sheet_metadata['properties']['sheetId']
 
                     client_row = [
-                        client_info.get('first_name', ''),
-                        client_info.get('last_name', ''),
+                        client_first,
+                        client_last,
                         client_email,
                         client_info.get('phone', ''),
                         '',  # DOB (Collected at intake)
                         '',  # Address (Collected at intake)
-                        square_customer_id,  # Column G: Square Customer ID
-                        square_card_id       # Column H: Square Card ID
+                        0,                   # Column G: Visits (completed only)
+                        square_customer_id,  # Column H: Square Customer ID
+                        square_card_id       # Column I: Square Card ID
                     ]
 
-                    # Always insert a new row at Row 2 (index 1) to push existing data down
                     request_body = {
                         "requests": [{
                             "insertDimension": {
@@ -1169,36 +1280,58 @@ def book_appointment():
                         body={'values': [client_row]}
                     ).execute()
                 else:
-                    print(f"BACKGROUND_TASK: Existing client {client_email} found. Updating latest Square IDs.")
-                    # Find the row index for this email to update the Card ID
-                    target_row_index = -1
-                    for idx, row_val in enumerate(result.get('values', [])):
-                        if row_val and norm_email(row_val[0]) == normalized_email:
-                            target_row_index = idx + 1 # Sheets is 1-indexed
-                            break
+                    print(
+                        f"BACKGROUND_TASK: Existing client {client_email} found. "
+                        f"Completed visits on sheet={completed_visits}; updating Square IDs only."
+                    )
+                    sheets_service.spreadsheets().values().update(
+                        spreadsheetId=SPREADSHEET_ID,
+                        range=f'Clients!H{target_row_index}:I{target_row_index}',
+                        valueInputOption='USER_ENTERED',
+                        body={'values': [[square_customer_id, square_card_id]]}
+                    ).execute()
 
-                    if target_row_index != -1:
-                        # Update the Square Customer ID and Card ID for the existing client
-                        # This ensures the 'Clients' sheet always has the LATEST authorized card
-                        update_range = f'Clients!G{target_row_index}:H{target_row_index}'
-                        sheets_service.spreadsheets().values().update(
-                            spreadsheetId=SPREADSHEET_ID,
-                            range=update_range,
-                            valueInputOption='USER_ENTERED',
-                            body={'values': [[square_customer_id, square_card_id]]}
-                        ).execute()
-
-                        # Also update Phone if they provided a new one
-                        sheets_service.spreadsheets().values().update(
-                            spreadsheetId=SPREADSHEET_ID,
-                            range=f'Clients!D{target_row_index}',
-                            valueInputOption='USER_ENTERED',
-                            body={'values': [[client_info.get('phone', '')]]}
-                        ).execute()
+                    sheets_service.spreadsheets().values().update(
+                        spreadsheetId=SPREADSHEET_ID,
+                        range=f'Clients!D{target_row_index}',
+                        valueInputOption='USER_ENTERED',
+                        body={'values': [[client_info.get('phone', '')]]}
+                    ).execute()
         except Exception as sheet_e:
             print(f"ERROR (background): Failed to update Clients sheet during booking: {sheet_e}")
 
-        # 2. Send Emails
+        # 2. Square admin link on this event, then label ALL future appointments for this client
+        try:
+            latest_event = execute_with_retry(service.events().get(calendarId=PRIMARY_CALENDAR_ID, eventId=calendar_event_id))
+            final_desc = latest_event.get('description', '')
+
+            if square_customer_id:
+                customer_link = f"https://squareup.com/dashboard/customers/directory/customer/{square_customer_id}"
+                square_tag = "--- ADMIN: SQUARE INFO ---"
+                square_content = f"Customer Profile: <a href=\"{customer_link}\">Square Card Link</a>"
+                final_desc = safe_append_description(final_desc, square_tag, square_content)
+                execute_with_retry(service.events().patch(
+                    calendarId=PRIMARY_CALENDAR_ID,
+                    eventId=calendar_event_id,
+                    body={'description': final_desc}
+                ))
+
+            future_count = renumber_client_future_visit_labels(
+                service,
+                PRIMARY_CALENDAR_ID,
+                client_email,
+                client_first,
+                client_last,
+                completed_visits,
+            )
+            print(
+                f"BACKGROUND_TASK: Labeled {future_count} future appointment(s) for {client_email} "
+                f"(sheet completed={completed_visits})."
+            )
+        except Exception as e:
+            print(f"ERROR: Failed to update calendar event with Square/Visit info: {e}")
+
+        # 3. Send Emails
         print(f"BACKGROUND_TASK: Starting email delivery for: {client_email}")
         if client_email:
             email_subject = "Your Massage Appointment is Confirmed!"
@@ -1840,6 +1973,147 @@ def trigger_email_reminders():
         print(f"EMAIL CRON ERROR: {e}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/cron/complete-visits', methods=['GET'])
+def cron_complete_visits():
+    """
+    After appointments have started, increment Clients!G (completed visits)
+    once per event. Uses VISIT_COUNTED on the event description to stay idempotent.
+    Schedule daily (or every few hours) on Render like the other crons.
+    """
+    cron_key = os.getenv("CRON_SECRET_KEY")
+    if cron_key and request.args.get('key') != cron_key:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    service = get_calendar_service()
+    sheets_service = get_sheets_service()
+    if not service or not sheets_service:
+        return jsonify({"error": "Google services unavailable"}), 500
+
+    now = datetime.datetime.now(timezone.utc)
+    # Catch appointments that started in the last 3 days and are now in the past
+    time_min = now - timedelta(days=3)
+    time_max = now
+
+    try:
+        sheet_result = sheets_service.spreadsheets().values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range='Clients!A:I'
+        ).execute()
+        rows = sheet_result.get('values', [])
+        email_to_row = {}
+        for idx, row in enumerate(rows):
+            if len(row) > 2 and row[2]:
+                email_to_row[norm_email(row[2])] = {
+                    "row": idx + 1,
+                    "visits": parse_visit_count(row[6] if len(row) > 6 else ''),
+                    "first": row[0] if len(row) > 0 else '',
+                    "last": row[1] if len(row) > 1 else '',
+                }
+
+        events = []
+        page_token = None
+        while True:
+            result = execute_with_retry(service.events().list(
+                calendarId=PRIMARY_CALENDAR_ID,
+                timeMin=time_min.isoformat(),
+                timeMax=time_max.isoformat(),
+                singleEvents=True,
+                orderBy='startTime',
+                pageToken=page_token,
+                maxResults=2500
+            ))
+            events.extend(result.get('items', []))
+            page_token = result.get('nextPageToken')
+            if not page_token:
+                break
+
+        incremented = 0
+        skipped = 0
+        for event in events:
+            summary = (event.get('summary') or '').strip()
+            lower = summary.lower()
+            if lower == 'open for bookings' or summary.upper().startswith('WAITLIST:'):
+                skipped += 1
+                continue
+            if event.get('status') == 'cancelled' or 'dateTime' not in (event.get('start') or {}):
+                skipped += 1
+                continue
+
+            start_dt = parse_iso_datetime(event['start']['dateTime'])
+            if start_dt >= now:
+                continue
+
+            desc = event.get('description') or ''
+            if description_has_visit_counted_tag(desc):
+                skipped += 1
+                continue
+
+            meta = parse_appointment_description_metadata(desc)
+            client_email = norm_email(meta.get('email', ''))
+            client_info = email_to_row.get(client_email) if client_email else None
+
+            # Name fallback when email missing (manual bookings)
+            if not client_info:
+                full_from_summary = ""
+                if " for " in lower:
+                    full_from_summary = " ".join(summary[lower.rfind(" for ") + 5:].split()).strip().lower()
+                for info in email_to_row.values():
+                    sheet_name = f"{info['first']} {info['last']}".strip().lower()
+                    if full_from_summary and sheet_name == full_from_summary:
+                        client_info = info
+                        break
+                    if sheet_name and sheet_name in lower:
+                        client_info = info
+                        break
+
+            if not client_info:
+                skipped += 1
+                continue
+
+            new_visits = client_info['visits'] + 1
+            sheets_service.spreadsheets().values().update(
+                spreadsheetId=SPREADSHEET_ID,
+                range=f"Clients!G{client_info['row']}",
+                valueInputOption='USER_ENTERED',
+                body={'values': [[new_visits]]}
+            ).execute()
+            client_info['visits'] = new_visits
+
+            new_desc = append_visit_counted_tag(upsert_visit_in_description(desc, new_visits))
+            execute_with_retry(service.events().patch(
+                calendarId=PRIMARY_CALENDAR_ID,
+                eventId=event['id'],
+                body={'description': new_desc}
+            ))
+
+            # Keep remaining future labels aligned with the new completed count
+            try:
+                renumber_client_future_visit_labels(
+                    service,
+                    PRIMARY_CALENDAR_ID,
+                    client_email or '',
+                    client_info['first'],
+                    client_info['last'],
+                    new_visits,
+                )
+            except Exception as renumber_err:
+                print(f"WARNING: Failed to renumber future visits after completion: {renumber_err}")
+
+            incremented += 1
+            print(
+                f"INFO: COMPLETED VISIT counted for row {client_info['row']} "
+                f"→ {new_visits} ({summary})"
+            )
+
+        return jsonify({
+            "status": "success",
+            "visits_incremented": incremented,
+            "skipped": skipped
+        })
+    except Exception as e:
+        print(f"COMPLETE-VISITS CRON ERROR: {e}")
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/webhooks/textbee', methods=['POST'])
 def textbee_webhook():
     """Webhook listener for TextBee SMS status updates."""
@@ -2298,7 +2572,7 @@ def submit_waitlist():
             }
             sheets_service.spreadsheets().batchUpdate(spreadsheetId=SPREADSHEET_ID, body=request_body).execute()
 
-            client_row = [first_name, last_name, email, phone, '', '', '', '']
+            client_row = [first_name, last_name, email, phone, '', '', '', '', '']
             sheets_service.spreadsheets().values().update(
                 spreadsheetId=SPREADSHEET_ID,
                 range=f'Clients!A{SHEET_START_ROW_REF}',
