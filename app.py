@@ -264,6 +264,42 @@ def parse_visit_count(value):
     except (TypeError, ValueError):
         return 0
 
+def _parse_dob_to_date(value):
+    """Parse a DOB string from the form or Clients sheet into a date, or None."""
+    raw = (value or "").strip()
+    if not raw:
+        return None
+
+    # ISO from <input type="date"> or Sheets serializations
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%m-%d-%Y", "%Y/%m/%d"):
+        try:
+            return datetime.datetime.strptime(raw, fmt).date()
+        except ValueError:
+            continue
+
+    # Digits-only MMDDYYYY
+    digits = re.sub(r"\D", "", raw)
+    if len(digits) == 8:
+        try:
+            return datetime.datetime.strptime(digits, "%m%d%Y").date()
+        except ValueError:
+            return None
+    return None
+
+def dob_to_sheet_format(value):
+    """Format DOB as zero-padded MM/DD/YYYY text for Clients!E (birthday sorting)."""
+    parsed = _parse_dob_to_date(value)
+    if not parsed:
+        return (value or "").strip()
+    return parsed.strftime("%m/%d/%Y")
+
+def dob_to_iso_format(value):
+    """Format DOB as YYYY-MM-DD for HTML date inputs and the rest of the app."""
+    parsed = _parse_dob_to_date(value)
+    if not parsed:
+        return (value or "").strip()
+    return parsed.strftime("%Y-%m-%d")
+
 def format_visit_ordinal(n):
     """Format 1 -> '1st', 2 -> '2nd', 3 -> '3rd', 4 -> '4th', etc."""
     n = int(n)
@@ -867,7 +903,9 @@ def lookup_client():
                 return jsonify({
                     "found": True,
                     "firstName": row[0], "lastName": row[1], "email": row[2],
-                    "phone": row[3], "dob": row[4] if len(row) > 4 else "",
+                    "phone": row[3],
+                    # Clients!E stores MM/DD/YYYY; convert back to ISO for <input type="date">
+                    "dob": dob_to_iso_format(row[4]) if len(row) > 4 else "",
                     "address": row[5] if len(row) > 5 else "",
                     "hasCard": has_card_on_file,
                     "last4": card_last_4,
@@ -2311,13 +2349,15 @@ def _handle_intake_submission_background(data, pdf_output):
                     break
 
             if target_row_index != -1:
-                # Update DOB (Col E) and Address (Col F) for that specific row
+                # Update DOB (Col E) and Address (Col F) for that specific row.
+                # DOB is stored as MM/DD/YYYY text so A→Z sort is by month/day.
+                # RAW avoids Sheets auto-converting the value into a real date.
                 update_range = f'Clients!E{target_row_index}:F{target_row_index}'
                 sheets_service.spreadsheets().values().update(
                     spreadsheetId=SPREADSHEET_ID,
                     range=update_range,
-                    valueInputOption='USER_ENTERED',
-                    body={'values': [[data.get('dob', ''), data.get('address', '')]]}
+                    valueInputOption='RAW',
+                    body={'values': [[dob_to_sheet_format(data.get('dob', '')), data.get('address', '')]]}
                 ).execute()
                 print(f"BACKGROUND_TASK: Enriched client profile (DOB/Address) for {client_email}")
     except Exception as e:
