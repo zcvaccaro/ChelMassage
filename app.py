@@ -458,11 +458,27 @@ def parse_appointment_description_metadata(description):
         "comments": comments_match.group(1).strip() if comments_match else "",
     }
 
+# Reminder markers:
+# - SENT = confirmed delivery attempt succeeded (do not retry)
+# - LOCK = in-progress / uncertain (retry after TTL expires)
+REMINDER_LOCK_TTL_SECONDS = 20 * 60  # 20 minutes
+SMS_REMINDER_SENT_PREFIX = "SMS_REMINDER_SENT_FOR:"
+SMS_REMINDER_SENT_LEGACY_PREFIX = "REMINDER_SENT_FOR:"
+SMS_REMINDER_LOCK_PREFIX = "REMINDER_LOCKED_FOR:"
+EMAIL_REMINDER_SENT_PREFIX = "EMAIL_REMINDER_SENT_FOR:"
+EMAIL_REMINDER_LOCK_PREFIX = "EMAIL_REMINDER_LOCKED_FOR:"
+
+
+def _line_matches_reminder_timestamps(line, timestamps):
+    return any(ts and ts in line for ts in timestamps)
+
+
 def description_has_sms_reminder_tag(description, *timestamps):
     """
-    Returns True if an SMS reminder marker exists for one of the timestamps.
+    Returns True if a confirmed SMS SENT marker exists for one of the timestamps.
     IMPORTANT: must NOT treat EMAIL_REMINDER_SENT_FOR as an SMS tag.
     ('REMINDER_SENT_FOR:' is a substring of 'EMAIL_REMINDER_SENT_FOR:').
+    Temporary LOCK markers are intentionally ignored here.
     """
     valid_timestamps = [ts for ts in timestamps if ts]
     if not valid_timestamps:
@@ -470,16 +486,118 @@ def description_has_sms_reminder_tag(description, *timestamps):
 
     for raw_line in (description or "").splitlines():
         line = raw_line.strip()
-        if line.startswith("EMAIL_REMINDER_SENT_FOR:"):
+        if line.startswith(EMAIL_REMINDER_SENT_PREFIX) or line.startswith(EMAIL_REMINDER_LOCK_PREFIX):
             continue
-        if (
-            line.startswith("SMS_REMINDER_SENT_FOR:")
-            or line.startswith("REMINDER_SENT_FOR:")
-            or line.startswith("REMINDER_LOCKED_FOR:")
-        ):
-            if any(ts in line for ts in valid_timestamps):
+        if line.startswith(SMS_REMINDER_SENT_PREFIX) or line.startswith(SMS_REMINDER_SENT_LEGACY_PREFIX):
+            if _line_matches_reminder_timestamps(line, valid_timestamps):
                 return True
     return False
+
+
+def _parse_reminder_lock_age_seconds(line, prefix, now_utc):
+    """
+    LOCK line format: "<PREFIX> <appointment_iso>|<lock_iso>"
+    Returns age in seconds, or None if unparsable.
+    """
+    payload = line[len(prefix):].strip()
+    if "|" not in payload:
+        return None
+    _, lock_iso = payload.rsplit("|", 1)
+    try:
+        locked_at = parse_iso_datetime(lock_iso.strip())
+        if locked_at.tzinfo is None:
+            locked_at = locked_at.replace(tzinfo=timezone.utc)
+        return max(0.0, (now_utc - locked_at).total_seconds())
+    except Exception:
+        return None
+
+
+def description_has_active_sms_reminder_lock(description, *timestamps, now_utc=None, ttl_seconds=REMINDER_LOCK_TTL_SECONDS):
+    """True if a non-expired SMS LOCK exists for one of the appointment timestamps."""
+    valid_timestamps = [ts for ts in timestamps if ts]
+    if not valid_timestamps:
+        return False
+    now_utc = now_utc or datetime.datetime.now(timezone.utc)
+
+    for raw_line in (description or "").splitlines():
+        line = raw_line.strip()
+        if line.startswith(EMAIL_REMINDER_SENT_PREFIX) or line.startswith(EMAIL_REMINDER_LOCK_PREFIX):
+            continue
+        if not line.startswith(SMS_REMINDER_LOCK_PREFIX):
+            continue
+        if not _line_matches_reminder_timestamps(line, valid_timestamps):
+            continue
+        age = _parse_reminder_lock_age_seconds(line, SMS_REMINDER_LOCK_PREFIX, now_utc)
+        # Unparsable lock ages are treated as active to avoid duplicate sends.
+        if age is None or age < ttl_seconds:
+            return True
+    return False
+
+
+def description_has_email_reminder_tag(description, *timestamps):
+    """True if a confirmed EMAIL SENT marker exists for one of the timestamps."""
+    valid_timestamps = [ts for ts in timestamps if ts]
+    if not valid_timestamps:
+        return False
+    prefix = EMAIL_REMINDER_SENT_PREFIX
+    for raw_line in (description or "").splitlines():
+        line = raw_line.strip()
+        if line.startswith(prefix) and _line_matches_reminder_timestamps(line, valid_timestamps):
+            return True
+    return False
+
+
+def description_has_active_email_reminder_lock(description, *timestamps, now_utc=None, ttl_seconds=REMINDER_LOCK_TTL_SECONDS):
+    """True if a non-expired EMAIL LOCK exists for one of the appointment timestamps."""
+    valid_timestamps = [ts for ts in timestamps if ts]
+    if not valid_timestamps:
+        return False
+    now_utc = now_utc or datetime.datetime.now(timezone.utc)
+    prefix = EMAIL_REMINDER_LOCK_PREFIX
+
+    for raw_line in (description or "").splitlines():
+        line = raw_line.strip()
+        if not line.startswith(prefix):
+            continue
+        if not _line_matches_reminder_timestamps(line, valid_timestamps):
+            continue
+        age = _parse_reminder_lock_age_seconds(line, prefix, now_utc)
+        if age is None or age < ttl_seconds:
+            return True
+    return False
+
+
+def strip_sms_reminder_markers(description):
+    """Remove SMS SENT/LOCK/legacy markers. Preserve EMAIL reminder markers."""
+    clean_lines = []
+    for line in (description or "").split("\n"):
+        stripped = line.strip()
+        if stripped.startswith(EMAIL_REMINDER_SENT_PREFIX) or stripped.startswith(EMAIL_REMINDER_LOCK_PREFIX):
+            clean_lines.append(line)
+            continue
+        if (
+            stripped.startswith(SMS_REMINDER_SENT_PREFIX)
+            or stripped.startswith(SMS_REMINDER_SENT_LEGACY_PREFIX)
+            or stripped.startswith(SMS_REMINDER_LOCK_PREFIX)
+        ):
+            continue
+        clean_lines.append(line)
+    return "\n".join(clean_lines).rstrip()
+
+
+def strip_email_reminder_markers(description):
+    """Remove EMAIL SENT/LOCK markers only."""
+    clean_lines = []
+    for line in (description or "").split("\n"):
+        stripped = line.strip()
+        if stripped.startswith(EMAIL_REMINDER_SENT_PREFIX) or stripped.startswith(EMAIL_REMINDER_LOCK_PREFIX):
+            continue
+        clean_lines.append(line)
+    return "\n".join(clean_lines).rstrip()
+
+
+def build_reminder_lock_tag(prefix, appointment_iso, locked_at_iso):
+    return f"{prefix} {appointment_iso}|{locked_at_iso}"
 
 def verify_textbee_signature(raw_payload, signature, secret):
     """Verifies the HMAC_SHA256 signature from TextBee."""
@@ -1521,9 +1639,12 @@ def _send_textbee_sms(phone_number, message_body):
         print(f"SMS ERROR: {last_error}")
         return False, last_error
     except requests.exceptions.Timeout as e:
-        # TextBee may have queued the SMS before the HTTP response returned.
-        print(f"SMS WARNING: Request timed out (message may already be queued): {e}")
-        return True, None
+        # Do not treat timeout as success: the HTTP call may have failed before
+        # TextBee queued anything. Caller keeps a temporary lock so we don't
+        # immediately retry and risk a duplicate if the message was queued.
+        err = f"TextBee request timed out (delivery unconfirmed): {e}"
+        print(f"SMS WARNING: {err}")
+        return False, err
     except requests.exceptions.RequestException as e:
         last_error = str(e)
         print(f"SMS ERROR: Request failed for {clean_phone}: {last_error}")
@@ -1570,7 +1691,8 @@ def trigger_reminders():
             "skipped_already_sent": 0,
             "skipped_no_phone": 0,
             "skipped_outside_time_window": 0,
-            "mark_sent_conflicts": 0,
+            "skipped_active_lock": 0,
+            "mark_lock_conflicts": 0,
             "sms_attempted": 0,
             "sms_failed": 0,
             "last_error": None
@@ -1608,24 +1730,33 @@ def trigger_reminders():
                     continue
                 processed_keys.add(event_key)
 
-                reminder_sent_tag_prefix = "SMS_REMINDER_SENT_FOR: "
-                legacy_reminder_sent_tag_prefix = "REMINDER_SENT_FOR: "
-                reminder_lock_tag_prefix = "REMINDER_LOCKED_FOR: "
-                specific_sent_tag = f"{reminder_sent_tag_prefix}{norm_current}"
+                specific_sent_tag = f"{SMS_REMINDER_SENT_PREFIX} {norm_current}"
+                lock_now_iso = now.isoformat()
+                specific_lock_tag = build_reminder_lock_tag(
+                    SMS_REMINDER_LOCK_PREFIX, norm_current, lock_now_iso
+                )
 
                 # 1. DISPERSE WORKERS: Add random jitter to prevent synchronized race conditions
                 time.sleep(random.uniform(0.1, 1.2))
 
-                # 2. ATOMIC LOCK: Re-fetch the event to check for a tag added by another worker
+                # 2. Re-fetch and skip if already sent or actively locked by another worker
                 try:
                     fresh_event = execute_with_retry(service.events().get(calendarId=calendar_id, eventId=event['id']))
                     fresh_desc = fresh_event.get('description', '') or ""
 
-                    # Skip if an SMS reminder was already sent for THIS start time.
-                    # Do not treat EMAIL_REMINDER_SENT_FOR as an SMS sent marker.
                     if description_has_sms_reminder_tag(fresh_desc, norm_current, current_start_iso):
                         debug_counts["skipped_already_sent"] += 1
                         print(f"DEBUG CRON: Skipping '{summary}' (ID: {event['id']}) - Reminder already sent for {norm_current}.")
+                        continue
+
+                    if description_has_active_sms_reminder_lock(
+                        fresh_desc, norm_current, current_start_iso, now_utc=now
+                    ):
+                        debug_counts["skipped_active_lock"] += 1
+                        print(
+                            f"DEBUG CRON: Skipping '{summary}' (ID: {event['id']}) - "
+                            f"active SMS lock within {REMINDER_LOCK_TTL_SECONDS}s."
+                        )
                         continue
                 except Exception as e:
                     print(f"ERROR: Failed to verify status for event {event['id']}: {e}")
@@ -1663,26 +1794,10 @@ def trigger_reminders():
                     )
                     continue
 
-                # 3. ATOMIC SEND MARK:
-                # Mark SMS reminder sent first under ETag, then send SMS.
-                # If SMS fails, keep the tag so cron does not send duplicate reminders.
+                # 3. ATOMIC TEMPORARY LOCK (not SENT): claim this event under ETag before send.
                 try:
-                    # Remove any previous SMS sent/lock markers for this appointment,
-                    # then write the "sent" marker exactly once. Never strip EMAIL_ tags.
-                    clean_lines = []
-                    for line in fresh_desc.split('\n'):
-                        stripped = line.strip()
-                        if stripped.startswith("EMAIL_REMINDER_SENT_FOR:"):
-                            clean_lines.append(line)
-                            continue
-                        if (
-                            stripped.startswith(reminder_sent_tag_prefix)
-                            or stripped.startswith(legacy_reminder_sent_tag_prefix)
-                            or stripped.startswith(reminder_lock_tag_prefix)
-                        ):
-                            continue
-                        clean_lines.append(line)
-                    locked_desc = "\n".join(clean_lines).rstrip() + f"\n{specific_sent_tag}"
+                    locked_desc = strip_sms_reminder_markers(fresh_desc)
+                    locked_desc = f"{locked_desc}\n{specific_lock_tag}".strip() if locked_desc else specific_lock_tag
                     patch_event_description_with_etag(
                         service=service,
                         calendar_id=calendar_id,
@@ -1694,17 +1809,19 @@ def trigger_reminders():
                         service.events().get(calendarId=calendar_id, eventId=event['id'])
                     )
                     verified_desc = verified_event.get('description', '') or ""
-                    if not description_has_sms_reminder_tag(verified_desc, norm_current, current_start_iso):
+                    if not description_has_active_sms_reminder_lock(
+                        verified_desc, norm_current, current_start_iso, now_utc=now
+                    ):
                         print(
-                            f"ERROR: SMS_REMINDER_SENT tag did not persist on '{summary}' "
+                            f"ERROR: SMS REMINDER_LOCKED tag did not persist on '{summary}' "
                             f"(ID: {event['id']}); skipping SMS to avoid duplicates."
                         )
                         continue
-                    print(f"DEBUG CRON: Marked event '{summary}' as SMS-sent.")
+                    print(f"DEBUG CRON: Locked event '{summary}' for SMS send.")
                 except HttpError as e:
                     if e.resp.status == 412:
-                        debug_counts["mark_sent_conflicts"] += 1
-                        print(f"DEBUG CRON: Conflict detected for '{summary}'. Another worker already sent this.")
+                        debug_counts["mark_lock_conflicts"] += 1
+                        print(f"DEBUG CRON: Conflict detected for '{summary}'. Another worker already claimed this.")
                         continue
                     print(f"ERROR: Failed to lock event {event['id']}: {e}")
                     continue
@@ -1712,7 +1829,7 @@ def trigger_reminders():
                     print(f"ERROR: Failed to lock event {event['id']}: {e}")
                     continue
 
-                # 4. SEND SMS: Only reachable if the 'lock' above succeeded
+                # 4. SEND SMS: Only reachable if the temporary lock above succeeded
                 local_start = start_dt.astimezone(local_tz)
                 client_full_name = summary.split(" for ")[-1].strip() if " for " in summary.lower() else "Valued Client"
                 first_name = client_full_name.split(' ')[0]
@@ -1728,13 +1845,62 @@ def trigger_reminders():
                 debug_counts["sms_attempted"] += 1
                 sms_success, sms_error_message = send_sms(phone, msg_body)
                 if sms_success:
-                    sent_count += 1
-                    print(f"INFO: REMINDER SENT: to {phone} for '{summary}' (ID: {event['id']})")
-                else: # SMS failed
+                    # Promote LOCK -> SENT only after confirmed provider success.
+                    try:
+                        post_event = execute_with_retry(
+                            service.events().get(calendarId=calendar_id, eventId=event['id'])
+                        )
+                        sent_desc = strip_sms_reminder_markers(post_event.get('description', '') or "")
+                        sent_desc = f"{sent_desc}\n{specific_sent_tag}".strip() if sent_desc else specific_sent_tag
+                        patch_event_description_with_etag(
+                            service=service,
+                            calendar_id=calendar_id,
+                            event_id=event['id'],
+                            description=sent_desc,
+                            etag=post_event.get('etag')
+                        )
+                        sent_count += 1
+                        print(f"INFO: REMINDER SENT: to {phone} for '{summary}' (ID: {event['id']})")
+                    except Exception as e:
+                        # SMS already went out; leave LOCK so TTL prevents a quick duplicate retry.
+                        debug_counts["last_error"] = f"SMS sent but failed to stamp SENT: {e}"
+                        print(
+                            f"WARNING: SMS sent for '{summary}' (ID: {event['id']}) but SENT tag write failed: {e}. "
+                            f"Lock retained for {REMINDER_LOCK_TTL_SECONDS}s."
+                        )
+                else:
                     debug_counts["sms_failed"] += 1
                     debug_counts["last_error"] = sms_error_message
-                    # Keep REMINDER_SENT_FOR tag to prevent duplicate texts on the next cron run.
-                    print(f"WARNING: SMS failed for '{summary}' (ID: {event['id']}) with error: {sms_error_message}")
+                    is_timeout = "timed out" in (sms_error_message or "").lower()
+                    if is_timeout:
+                        # Keep LOCK through TTL to reduce duplicate risk if TextBee queued late.
+                        print(
+                            f"WARNING: SMS timed out for '{summary}' (ID: {event['id']}): {sms_error_message}. "
+                            f"Keeping temporary lock for {REMINDER_LOCK_TTL_SECONDS}s before retry."
+                        )
+                    else:
+                        # Clear LOCK so the next cron can retry while still in the 26±1 window.
+                        try:
+                            post_event = execute_with_retry(
+                                service.events().get(calendarId=calendar_id, eventId=event['id'])
+                            )
+                            cleared_desc = strip_sms_reminder_markers(post_event.get('description', '') or "")
+                            patch_event_description_with_etag(
+                                service=service,
+                                calendar_id=calendar_id,
+                                event_id=event['id'],
+                                description=cleared_desc,
+                                etag=post_event.get('etag')
+                            )
+                            print(
+                                f"WARNING: SMS failed for '{summary}' (ID: {event['id']}) with error: "
+                                f"{sms_error_message}. Cleared lock for retry."
+                            )
+                        except Exception as clear_err:
+                            print(
+                                f"WARNING: SMS failed for '{summary}' (ID: {event['id']}) with error: "
+                                f"{sms_error_message}. Also failed to clear lock: {clear_err}."
+                            )
 
         response_payload = {"status": "success", "reminders_sent": sent_count}
         if debug_mode:
@@ -1777,7 +1943,8 @@ def trigger_email_reminders():
             "skipped_already_sent": 0,
             "skipped_missing_required_fields": 0,
             "skipped_outside_time_window": 0,
-            "mark_sent_conflicts": 0,
+            "skipped_active_lock": 0,
+            "mark_lock_conflicts": 0,
             "email_attempted": 0,
             "email_failed": 0,
             "manual_links_added": 0,
@@ -1786,7 +1953,6 @@ def trigger_email_reminders():
 
         soap_tag = "--- ADMIN: SOAP NOTE LINK ---"
         intake_link_tag = "--- ADMIN: CLIENT INTAKE FORM ---"
-        email_sent_tag_prefix = "EMAIL_REMINDER_SENT_FOR: "
 
         for calendar_id in [PRIMARY_CALENDAR_ID]:
             res = service.events().list(
@@ -1822,7 +1988,10 @@ def trigger_email_reminders():
                     continue
                 processed_keys.add(event_key)
 
-                specific_sent_tag = f"{email_sent_tag_prefix}{norm_current}"
+                specific_sent_tag = f"{EMAIL_REMINDER_SENT_PREFIX} {norm_current}"
+                specific_lock_tag = build_reminder_lock_tag(
+                    EMAIL_REMINDER_LOCK_PREFIX, norm_current, now.isoformat()
+                )
 
                 time.sleep(random.uniform(0.1, 1.2))
 
@@ -1832,14 +2001,21 @@ def trigger_email_reminders():
                     )
                     fresh_desc = fresh_event.get('description', '') or ""
 
-                    if (
-                        specific_sent_tag in fresh_desc
-                        or f"{email_sent_tag_prefix}{current_start_iso}" in fresh_desc
-                    ):
+                    if description_has_email_reminder_tag(fresh_desc, norm_current, current_start_iso):
                         debug_counts["skipped_already_sent"] += 1
                         print(
                             f"DEBUG EMAIL CRON: Skipping '{summary}' (ID: {event['id']}) - "
                             f"Email reminder already sent for {norm_current}."
+                        )
+                        continue
+
+                    if description_has_active_email_reminder_lock(
+                        fresh_desc, norm_current, current_start_iso, now_utc=now
+                    ):
+                        debug_counts["skipped_active_lock"] += 1
+                        print(
+                            f"DEBUG EMAIL CRON: Skipping '{summary}' (ID: {event['id']}) - "
+                            f"active email lock within {REMINDER_LOCK_TTL_SECONDS}s."
                         )
                         continue
                 except Exception as e:
@@ -1924,13 +2100,10 @@ def trigger_email_reminders():
                         f"'{summary}' (ID: {calendar_event_id})."
                     )
 
-                # Atomic mark: write EMAIL_REMINDER_SENT_FOR before sending
+                # Atomic temporary LOCK (not SENT): claim under ETag before send.
                 try:
-                    clean_lines = [
-                        line for line in working_desc.split('\n')
-                        if not line.strip().startswith(email_sent_tag_prefix)
-                    ]
-                    locked_desc = "\n".join(clean_lines).rstrip() + f"\n{specific_sent_tag}"
+                    locked_desc = strip_email_reminder_markers(working_desc)
+                    locked_desc = f"{locked_desc}\n{specific_lock_tag}".strip() if locked_desc else specific_lock_tag
                     patch_event_description_with_etag(
                         service=service,
                         calendar_id=calendar_id,
@@ -1942,19 +2115,21 @@ def trigger_email_reminders():
                         service.events().get(calendarId=calendar_id, eventId=calendar_event_id)
                     )
                     verified_desc = verified_event.get('description', '') or ""
-                    if specific_sent_tag not in verified_desc:
+                    if not description_has_active_email_reminder_lock(
+                        verified_desc, norm_current, current_start_iso, now_utc=now
+                    ):
                         print(
-                            f"ERROR: EMAIL_REMINDER_SENT tag did not persist on '{summary}' "
+                            f"ERROR: EMAIL REMINDER_LOCKED tag did not persist on '{summary}' "
                             f"(ID: {calendar_event_id}); skipping email to avoid duplicates."
                         )
                         continue
-                    print(f"DEBUG EMAIL CRON: Marked event '{summary}' as email-reminder-sent.")
+                    print(f"DEBUG EMAIL CRON: Locked event '{summary}' for email send.")
                 except HttpError as e:
                     if e.resp.status == 412:
-                        debug_counts["mark_sent_conflicts"] += 1
+                        debug_counts["mark_lock_conflicts"] += 1
                         print(
                             f"DEBUG EMAIL CRON: Conflict detected for '{summary}'. "
-                            "Another worker already processed this."
+                            "Another worker already claimed this."
                         )
                         continue
                     print(f"ERROR: Failed to lock email reminder for event {calendar_event_id}: {e}")
@@ -1990,18 +2165,57 @@ def trigger_email_reminders():
                 debug_counts["email_attempted"] += 1
                 email_success, email_error = send_email(client_email, email_subject, email_body_html)
                 if email_success:
-                    sent_count += 1
-                    print(
-                        f"INFO: EMAIL REMINDER SENT: to {client_email} for '{summary}' "
-                        f"(ID: {calendar_event_id})"
-                    )
+                    try:
+                        post_event = execute_with_retry(
+                            service.events().get(calendarId=calendar_id, eventId=calendar_event_id)
+                        )
+                        # Preserve any manual SOAP/intake links written with the lock.
+                        sent_desc = strip_email_reminder_markers(post_event.get('description', '') or "")
+                        sent_desc = f"{sent_desc}\n{specific_sent_tag}".strip() if sent_desc else specific_sent_tag
+                        patch_event_description_with_etag(
+                            service=service,
+                            calendar_id=calendar_id,
+                            event_id=calendar_event_id,
+                            description=sent_desc,
+                            etag=post_event.get('etag')
+                        )
+                        sent_count += 1
+                        print(
+                            f"INFO: EMAIL REMINDER SENT: to {client_email} for '{summary}' "
+                            f"(ID: {calendar_event_id})"
+                        )
+                    except Exception as e:
+                        debug_counts["last_error"] = f"Email sent but failed to stamp SENT: {e}"
+                        print(
+                            f"WARNING: Email sent for '{summary}' (ID: {calendar_event_id}) but "
+                            f"SENT tag write failed: {e}. Lock retained for {REMINDER_LOCK_TTL_SECONDS}s."
+                        )
                 else:
                     debug_counts["email_failed"] += 1
                     debug_counts["last_error"] = email_error
-                    print(
-                        f"WARNING: Email reminder failed for '{summary}' "
-                        f"(ID: {calendar_event_id}) with error: {email_error}"
-                    )
+                    # Clear LOCK so the next cron can retry while still in the 26±1 window.
+                    try:
+                        post_event = execute_with_retry(
+                            service.events().get(calendarId=calendar_id, eventId=calendar_event_id)
+                        )
+                        cleared_desc = strip_email_reminder_markers(post_event.get('description', '') or "")
+                        patch_event_description_with_etag(
+                            service=service,
+                            calendar_id=calendar_id,
+                            event_id=calendar_event_id,
+                            description=cleared_desc,
+                            etag=post_event.get('etag')
+                        )
+                        print(
+                            f"WARNING: Email reminder failed for '{summary}' "
+                            f"(ID: {calendar_event_id}) with error: {email_error}. Cleared lock for retry."
+                        )
+                    except Exception as clear_err:
+                        print(
+                            f"WARNING: Email reminder failed for '{summary}' "
+                            f"(ID: {calendar_event_id}) with error: {email_error}. "
+                            f"Also failed to clear lock: {clear_err}."
+                        )
 
         response_payload = {"status": "success", "email_reminders_sent": sent_count}
         if debug_mode:
