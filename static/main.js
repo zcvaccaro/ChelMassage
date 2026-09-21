@@ -207,7 +207,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // Intercept all Booking and OnSite links
   document.addEventListener('click', (e) => {
     const btn = e.target.closest('a, button');
-    if (!btn || e.target.closest('#lookup-modal') || e.target.closest('#privacy-policy-modal') || btn.id === 'privacy-policy-btn') return;
+    if (!btn || e.target.closest('#lookup-modal') || e.target.closest('#privacy-policy-modal') || e.target.closest('#your-appt-lookup-modal') || e.target.closest('#your-appt-list-modal') || e.target.closest('#your-appt-cancel-modal') || e.target.closest('#home-cancellation-modal') || btn.id === 'privacy-policy-btn' || btn.classList.contains('your-appt-link')) return;
     const href = btn.getAttribute('href') || '';
 
     // Intercept Gift Card buttons
@@ -223,6 +223,280 @@ document.addEventListener("DOMContentLoaded", () => {
         showLookupModal(href || '/Booking.html');
     }
   });
+
+  // --- Your Appointment: lookup → list → cancel ---
+  const POLICY_NOTE_HTML = `
+    <p class="your-appt-policy-note">
+      Cancellations within 24 hours of your appointment may be subject to a fee.
+      See <button type="button" class="link-button your-appt-policy-link">Cancellation Policy</button>.
+    </p>`;
+
+  const openHomeCancellationPolicy = (e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    const policyModal = document.getElementById('home-cancellation-modal');
+    if (!policyModal) return;
+    // Sit above any open Your Appointment modal (lookup/list/confirm).
+    policyModal.style.zIndex = '11000';
+    policyModal.style.display = 'flex';
+  };
+
+  const closeHomeCancellationPolicy = (e) => {
+    if (e) e.stopPropagation();
+    const policyModal = document.getElementById('home-cancellation-modal');
+    if (!policyModal) return;
+    policyModal.style.display = 'none';
+    policyModal.style.zIndex = '';
+  };
+
+  const homeCancellationModal = document.getElementById('home-cancellation-modal');
+  const closeHomeCancellationBtn = document.getElementById('close-home-cancellation-btn');
+  if (homeCancellationModal && closeHomeCancellationBtn) {
+    closeHomeCancellationBtn.addEventListener('click', closeHomeCancellationPolicy);
+    homeCancellationModal.addEventListener('click', (e) => {
+      if (e.target === homeCancellationModal) closeHomeCancellationPolicy(e);
+    });
+  }
+
+  const escapeHtml = (value) => String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+  const removeYourApptModals = () => {
+    document.getElementById('your-appt-lookup-modal')?.remove();
+    document.getElementById('your-appt-list-modal')?.remove();
+    document.getElementById('your-appt-cancel-modal')?.remove();
+  };
+
+  const formatEmptyAppointmentsHtml = (data) => {
+    const phone = data.businessPhone || '(845) 694-9510';
+    const email = data.businessEmail || 'info@chelseavaccaromassage.com';
+    const phoneHref = 'tel:' + phone.replace(/\D/g, '');
+    return `
+      <p class="your-appt-empty">
+        Sorry, there were no upcoming appointments found that match this contact.
+        If you did not book online your appointments may not appear in this search.<br>
+        Please reach out to me via text or email to inquire about your upcoming appointments.
+      </p>
+      <p class="your-appt-contact-line">
+        <a href="${phoneHref}">${escapeHtml(phone)}</a><br>
+        <a href="mailto:${escapeHtml(email)}">${escapeHtml(email)}</a>
+      </p>`;
+  };
+
+  const showYourAppointmentListModal = (data, manageToken) => {
+    document.getElementById('your-appt-lookup-modal')?.remove();
+    document.getElementById('your-appt-list-modal')?.remove();
+
+    const firstName = (data.firstName || '').trim() || 'there';
+    let bodyHtml = '';
+    if (!data.appointments || data.appointments.length === 0) {
+      bodyHtml = `
+        <div id="your-appt-status" class="your-appt-status" style="display:none;"></div>
+        ${formatEmptyAppointmentsHtml(data)}`;
+    } else {
+      const rows = data.appointments.map((appt) => {
+        const when = `${appt.localDay}, ${appt.localDate} · ${appt.localTime}`;
+        const details = [appt.duration, appt.service].filter(Boolean).join(' · ');
+        return `
+          <div class="your-appt-row" data-event-id="${escapeHtml(appt.id)}">
+            <div class="your-appt-row-main">
+              <div class="your-appt-when">${escapeHtml(when)}</div>
+              <div class="your-appt-details">${escapeHtml(details)}</div>
+            </div>
+            <button type="button" class="link-button your-appt-cancel-btn"
+              data-event-id="${escapeHtml(appt.id)}"
+              data-duration="${escapeHtml(appt.duration || '')}"
+              data-service="${escapeHtml(appt.service || '')}"
+              data-day="${escapeHtml(appt.localDay || '')}"
+              data-date="${escapeHtml(appt.localDate || '')}"
+              data-time="${escapeHtml(appt.localTime || '')}">
+              Cancel this appointment
+            </button>
+          </div>`;
+      }).join('');
+      bodyHtml = `
+        <p class="your-appt-greeting">Hi ${escapeHtml(firstName)}, here are your upcoming appointments</p>
+        <div id="your-appt-status" class="your-appt-status" style="display:none;"></div>
+        <div class="your-appt-list">${rows}</div>`;
+    }
+
+    const modalHtml = `
+      <div id="your-appt-list-modal" class="modal-overlay your-appt-overlay" style="display:flex; opacity:1; pointer-events:auto;">
+        <div class="modal-content your-appt-modal-content">
+          <button type="button" class="close-modal-btn" id="close-your-appt-list-btn">&times;</button>
+          <h2 class="your-appt-title">Your Appointment</h2>
+          ${bodyHtml}
+          ${POLICY_NOTE_HTML}
+          <button type="button" class="cta your-appt-search-again" id="your-appt-search-again" style="width:100%; margin-top:1rem;">Search again</button>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    const modal = document.getElementById('your-appt-list-modal');
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    document.getElementById('close-your-appt-list-btn').onclick = () => modal.remove();
+    document.getElementById('your-appt-search-again').onclick = () => {
+      modal.remove();
+      showYourAppointmentLookupModal();
+    };
+    modal.querySelectorAll('.your-appt-policy-link').forEach((btn) => {
+      btn.addEventListener('click', openHomeCancellationPolicy);
+    });
+    modal.querySelectorAll('.your-appt-cancel-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        showYourAppointmentCancelConfirm({
+          eventId: btn.dataset.eventId,
+          duration: btn.dataset.duration || '',
+          service: btn.dataset.service || '',
+          day: btn.dataset.day || '',
+          date: btn.dataset.date || '',
+          time: btn.dataset.time || '',
+          manageToken,
+          listData: data,
+        });
+      });
+    });
+  };
+
+  const showYourAppointmentCancelConfirm = ({
+    eventId, duration, service, day, date, time, manageToken, listData
+  }) => {
+    document.getElementById('your-appt-cancel-modal')?.remove();
+    const summaryBits = escapeHtml([duration, service].filter(Boolean).join(' '));
+    const whenBits = escapeHtml([day, date].filter(Boolean).join(' '));
+    const timeBit = time ? ` at ${escapeHtml(time)}` : '';
+
+    const modalHtml = `
+      <div id="your-appt-cancel-modal" class="modal-overlay your-appt-overlay your-appt-confirm-overlay" style="display:flex; opacity:1; pointer-events:auto;">
+        <div class="modal-content your-appt-modal-content" style="max-width:420px; text-align:center;">
+          <button type="button" class="close-modal-btn" id="close-your-appt-cancel-btn">&times;</button>
+          <h2 class="your-appt-title">Cancel this appointment?</h2>
+          <p style="margin-bottom:0.75rem;"><strong>${summaryBits || 'Appointment'}</strong><br>${whenBits}${timeBit}</p>
+          ${POLICY_NOTE_HTML}
+          <div class="your-appt-cancel-actions">
+            <button type="button" class="cta" id="your-appt-confirm-cancel" style="width:100%;">Yes, cancel</button>
+            <button type="button" class="cta your-appt-secondary-btn" id="your-appt-keep-appt" style="width:100%;">No, don’t cancel</button>
+          </div>
+          <p id="your-appt-cancel-error" style="color:var(--accent-color-dark); display:none; margin-top:0.75rem; font-size:0.9rem;"></p>
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    const modal = document.getElementById('your-appt-cancel-modal');
+    const closeCancel = () => modal.remove();
+    modal.onclick = (e) => { if (e.target === modal) closeCancel(); };
+    document.getElementById('close-your-appt-cancel-btn').onclick = closeCancel;
+    document.getElementById('your-appt-keep-appt').onclick = closeCancel;
+    modal.querySelectorAll('.your-appt-policy-link').forEach((btn) => {
+      btn.addEventListener('click', openHomeCancellationPolicy);
+    });
+
+    document.getElementById('your-appt-confirm-cancel').onclick = async () => {
+      const confirmBtn = document.getElementById('your-appt-confirm-cancel');
+      const errEl = document.getElementById('your-appt-cancel-error');
+      confirmBtn.classList.add('loading');
+      errEl.style.display = 'none';
+      try {
+        const res = await fetch('/api/cancel-appointment', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ manageToken, eventId }),
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          errEl.textContent = payload.error || 'Could not cancel this appointment. Please try again.';
+          errEl.style.display = 'block';
+          return;
+        }
+        closeCancel();
+        const remaining = (listData.appointments || []).filter((a) => a.id !== eventId);
+        const refreshed = { ...listData, appointments: remaining, found: remaining.length > 0 };
+        showYourAppointmentListModal(refreshed, manageToken);
+        const status = document.getElementById('your-appt-status');
+        if (status) {
+          status.textContent = 'Cancelled';
+          status.style.display = 'block';
+        }
+      } catch (err) {
+        console.error(err);
+        errEl.textContent = 'Something went wrong. Please try again.';
+        errEl.style.display = 'block';
+      } finally {
+        confirmBtn.classList.remove('loading');
+      }
+    };
+  };
+
+  const showYourAppointmentLookupModal = () => {
+    removeYourApptModals();
+    const modalHtml = `
+      <div id="your-appt-lookup-modal" class="modal-overlay your-appt-overlay" style="display:flex; opacity:1; pointer-events:auto;">
+        <div class="modal-content your-appt-modal-content" style="text-align:center; max-width:450px;">
+          <button type="button" class="close-modal-btn" id="close-your-appt-lookup-btn">&times;</button>
+          <h2 class="your-appt-title">Your Appointment</h2>
+          <p style="margin-bottom:1.25rem; color:#666;">Enter the email or phone used when you booked.</p>
+          <form id="your-appt-lookup-form" class="reservation-form" style="max-width:100%; gap:1rem;">
+            <div class="form-group">
+              <input type="text" id="your-appt-identifier" placeholder="Email or Phone Number" required style="text-align:center;" autocomplete="tel">
+            </div>
+            <button type="submit" class="cta" id="your-appt-lookup-submit" style="width:100%;">Find My Appointments</button>
+            <p id="your-appt-lookup-error" style="color:var(--accent-color-dark); display:none; margin-top:10px; font-size:0.9rem;"></p>
+          </form>
+          ${POLICY_NOTE_HTML}
+        </div>
+      </div>`;
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    const modal = document.getElementById('your-appt-lookup-modal');
+    modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+    document.getElementById('close-your-appt-lookup-btn').onclick = () => modal.remove();
+    modal.querySelectorAll('.your-appt-policy-link').forEach((btn) => {
+      btn.addEventListener('click', openHomeCancellationPolicy);
+    });
+
+    document.getElementById('your-appt-lookup-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const identifier = document.getElementById('your-appt-identifier').value.trim();
+      const btn = document.getElementById('your-appt-lookup-submit');
+      const error = document.getElementById('your-appt-lookup-error');
+      btn.classList.add('loading');
+      error.style.display = 'none';
+      try {
+        const res = await fetch(`/api/my-appointments?identifier=${encodeURIComponent(identifier)}`);
+        const data = await res.json();
+        if (!res.ok && data.error) {
+          error.textContent = data.error;
+          error.style.display = 'block';
+          return;
+        }
+        showYourAppointmentListModal(data, data.manageToken || '');
+      } catch (err) {
+        console.error(err);
+        error.textContent = 'Something went wrong. Please try again.';
+        error.style.display = 'block';
+      } finally {
+        btn.classList.remove('loading');
+      }
+    };
+  };
+
+  const yourApptNav = document.getElementById('yourAppointmentNav');
+  if (yourApptNav) {
+    yourApptNav.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (navMenu && navMenu.classList.contains('is-active')) {
+        navMenu.classList.remove('is-active');
+      }
+      showYourAppointmentLookupModal();
+    });
+  }
 
   // --- Gift Card Modal Logic ---
   const giftModal = document.getElementById('gift-card-modal');
@@ -391,6 +665,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   navLinks.forEach(link => {
     link.addEventListener('click', function(e) {
+      if (this.classList.contains('your-appt-link')) return;
+
       // Prevent the default instant jump
       e.preventDefault();
 

@@ -1520,6 +1520,109 @@ input.datepicker {
   border: none !important;
 }
 
+/* --- Your Appointment modals --- */
+.your-appt-modal-content {
+  text-align: left;
+  max-width: 480px;
+}
+
+.your-appt-overlay {
+  z-index: 3001;
+}
+
+.your-appt-confirm-overlay {
+  z-index: 3002;
+}
+
+.your-appt-title {
+  font-size: 1.8rem;
+  margin-bottom: 0.75rem;
+  text-align: center;
+}
+
+.your-appt-greeting {
+  margin-bottom: 1rem;
+  text-align: center;
+}
+
+.your-appt-policy-note {
+  margin-top: 1.25rem;
+  font-size: 0.9rem;
+  color: #666;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.your-appt-empty {
+  color: #555;
+  line-height: 1.5;
+  margin-bottom: 1rem;
+  text-align: center;
+}
+
+.your-appt-contact-line {
+  text-align: center;
+  margin-bottom: 0.5rem;
+  line-height: 1.7;
+}
+
+.your-appt-contact-line a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.your-appt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.your-appt-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  padding: 0.85rem 0;
+  border-bottom: 1px solid #eee;
+}
+
+.your-appt-row:last-child {
+  border-bottom: none;
+}
+
+.your-appt-when {
+  font-weight: 600;
+}
+
+.your-appt-details {
+  color: #555;
+  font-size: 0.95rem;
+}
+
+.your-appt-cancel-btn {
+  font-size: 0.9rem;
+}
+
+.your-appt-status {
+  text-align: center;
+  color: #2f6b3a;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
+.your-appt-cancel-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-top: 1rem;
+}
+
+.your-appt-secondary-btn {
+  background: #fff !important;
+  color: #000 !important;
+  border: 1px solid #000 !important;
+}
+
 /* --- Consolidated Square Card Container --- */
 #card-container {
   width: 100%;

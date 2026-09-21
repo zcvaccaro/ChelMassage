@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import html
 import io
+import json
 import os
 import random
 import re
@@ -91,6 +92,21 @@ WAITLIST_EVENT_COLOR_ID = "5"          # Banana (Yellow)
 # --- Email Configuration ---
 # Ensure we pull the email from the environment (loaded via dotenv above)
 SENDER_EMAIL = os.getenv("SENDER_EMAIL", "").strip()
+BUSINESS_PHONE_DISPLAY = "(845) 694-9510"
+BUSINESS_EMAIL = "info@chelseavaccaromassage.com"
+MANAGE_APPT_TOKEN_TTL_SECONDS = 30 * 60
+MANAGE_APPT_SECRET = (
+    os.getenv("MANAGE_APPT_SECRET", "").strip()
+    or os.getenv("CRON_SECRET_KEY", "").strip()
+    or TEXTBEE_WEBHOOK_SECRET
+    or "chel-manage-appt-dev-only"
+)
+NO_UPCOMING_APPOINTMENTS_MESSAGE = (
+    "Sorry, there were no upcoming appointments found that match this contact. "
+    "If you did not book online your appointments may not appear in this search. "
+    "Please reach out to me via text or email to inquire about your upcoming appointments.\n"
+    f"{BUSINESS_PHONE_DISPLAY}\n{BUSINESS_EMAIL}"
+)
 
 # --- Startup Checks ---
 if not SENDER_EMAIL:
@@ -255,6 +271,13 @@ def norm_email(email):
     """Strips and lowercases email addresses for comparison."""
     return email.strip().lower() if email else ""
 
+def _phone_digits(phone):
+    """Normalize a phone to comparable digits (US: last 10 when 11-digit and leading 1)."""
+    digits = "".join(filter(str.isdigit, phone or ""))
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+    return digits
+
 def parse_visit_count(value):
     """Parse Clients!G visit count; blank or invalid values count as 0."""
     if value is None or value == '':
@@ -333,8 +356,8 @@ def append_visit_counted_tag(description):
         return description
     return f"{description}\n\n{VISIT_COUNTED_TAG}".strip()
 
-def event_belongs_to_client(event, client_email, first_name='', last_name=''):
-    """Match a calendar event to a client by description email or summary name."""
+def event_belongs_to_client(event, client_email, first_name='', last_name='', client_phone=''):
+    """Match a calendar event to a client by description email/phone or summary name."""
     summary = (event.get('summary') or '').strip()
     lower_summary = summary.lower()
     if lower_summary == 'open for bookings' or summary.upper().startswith('WAITLIST:'):
@@ -351,12 +374,18 @@ def event_belongs_to_client(event, client_email, first_name='', last_name=''):
     if target_email and event_email and event_email == target_email:
         return True
 
+    phone_match = re.search(r'phone:\s*([\+\d\s\-\(\)]+)', desc, re.IGNORECASE)
+    event_phone = _phone_digits(phone_match.group(1) if phone_match else '')
+    target_phone = _phone_digits(client_phone)
+    if target_phone and event_phone and event_phone == target_phone:
+        return True
+
     full_name = " ".join(f"{first_name or ''} {last_name or ''}".split()).strip().lower()
     if full_name and full_name in lower_summary:
         return True
     return False
 
-def list_client_appointments(service, calendar_id, client_email, first_name, last_name, time_min, time_max):
+def list_client_appointments(service, calendar_id, client_email, first_name, last_name, time_min, time_max, client_phone=''):
     """Return timed appointment events for a client in [time_min, time_max), sorted by start."""
     events = []
     page_token = None
@@ -371,7 +400,9 @@ def list_client_appointments(service, calendar_id, client_email, first_name, las
             maxResults=2500
         ))
         for event in result.get('items', []):
-            if event_belongs_to_client(event, client_email, first_name, last_name):
+            if event_belongs_to_client(
+                event, client_email, first_name, last_name, client_phone=client_phone
+            ):
                 events.append(event)
         page_token = result.get('nextPageToken')
         if not page_token:
@@ -1085,6 +1116,353 @@ def lookup_client():
         return jsonify({"found": False})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+def _b64url_encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode("utf-8").rstrip("=")
+
+
+def _b64url_decode(value: str) -> bytes:
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode(value + padding)
+
+
+def create_manage_appointment_token(identity, event_ids, ttl_seconds=MANAGE_APPT_TOKEN_TTL_SECONDS):
+    """Signed short-lived token binding a contact to specific event IDs."""
+    payload = {
+        "email": norm_email(identity.get("email", "")),
+        "phone": _phone_digits(identity.get("phone", "")),
+        "firstName": (identity.get("firstName") or "").strip(),
+        "lastName": (identity.get("lastName") or "").strip(),
+        "eventIds": list(event_ids),
+        "exp": int(time.time()) + int(ttl_seconds),
+    }
+    body = _b64url_encode(json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8"))
+    sig = _b64url_encode(hmac.new(
+        MANAGE_APPT_SECRET.encode("utf-8"),
+        body.encode("utf-8"),
+        hashlib.sha256
+    ).digest())
+    return f"{body}.{sig}"
+
+
+def verify_manage_appointment_token(token):
+    """Return payload dict if token is valid, else None."""
+    if not token or "." not in token:
+        return None
+    try:
+        body, sig = token.rsplit(".", 1)
+        expected = _b64url_encode(hmac.new(
+            MANAGE_APPT_SECRET.encode("utf-8"),
+            body.encode("utf-8"),
+            hashlib.sha256
+        ).digest())
+        if not hmac.compare_digest(sig, expected):
+            return None
+        payload = json.loads(_b64url_decode(body).decode("utf-8"))
+        if int(payload.get("exp", 0)) < int(time.time()):
+            return None
+        if not isinstance(payload.get("eventIds"), list):
+            return None
+        return payload
+    except Exception:
+        return None
+
+
+def resolve_client_identity_from_sheets(identifier):
+    """
+    Lightweight Sheets identity lookup (Clients, then On-Site Requests).
+    Returns dict or None. Does not fetch Square/intake extras.
+    """
+    sheets = get_sheets_service()
+    if not sheets or not identifier:
+        return None
+
+    search_email = norm_email(identifier)
+    search_phone = _phone_digits(identifier)
+
+    try:
+        clients_result = sheets.spreadsheets().values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range='Clients!A:I'
+        ).execute()
+        for row in clients_result.get('values', []):
+            if len(row) < 3:
+                continue
+            row_email = norm_email(row[2])
+            row_phone = _phone_digits(row[3] if len(row) > 3 else "")
+            if (search_email and row_email == search_email) or (search_phone and row_phone == search_phone):
+                return {
+                    "firstName": row[0],
+                    "lastName": row[1],
+                    "email": row[2],
+                    "phone": row[3] if len(row) > 3 else "",
+                }
+
+        onsite_result = sheets.spreadsheets().values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range="'On-Site Requests'!A:D"
+        ).execute()
+        for row in onsite_result.get('values', []):
+            if len(row) < 2:
+                continue
+            row_email = norm_email(row[1])
+            row_phone = _phone_digits(row[2] if len(row) > 2 else "")
+            if (search_email and row_email == search_email) or (search_phone and row_phone == search_phone):
+                full_name = row[0]
+                name_parts = full_name.split(' ', 1)
+                return {
+                    "firstName": name_parts[0],
+                    "lastName": name_parts[1] if len(name_parts) > 1 else "",
+                    "email": row[1],
+                    "phone": row[2] if len(row) > 2 else "",
+                }
+    except Exception as e:
+        print(f"WARNING: resolve_client_identity_from_sheets failed: {e}")
+    return None
+
+
+def _name_from_appointment_summary(summary):
+    summary = (summary or "").strip()
+    if " for " in summary.lower():
+        return summary[summary.lower().rfind(" for ") + 5:].strip()
+    return ""
+
+
+def serialize_upcoming_appointment(event, local_tz):
+    """Public appointment payload for the Your Appointment UI."""
+    meta = parse_appointment_description_metadata(event.get('description') or '')
+    start_dt = parse_iso_datetime(event['start']['dateTime']).astimezone(local_tz)
+    return {
+        "id": event['id'],
+        "start": event['start']['dateTime'],
+        "localDate": start_dt.strftime('%B %d, %Y'),
+        "localDay": start_dt.strftime('%A'),
+        "localTime": start_dt.strftime('%I:%M %p').lstrip('0'),
+        "duration": (meta.get("duration") or "").strip(),
+        "service": (meta.get("service") or "").strip(),
+    }
+
+
+@app.route('/api/my-appointments', methods=['GET'])
+def my_appointments():
+    """
+    Look up upcoming appointments by email or phone.
+    Returns up to 5 soonest future appointments plus a short-lived manage token.
+    """
+    identifier = request.args.get('identifier', '').strip()
+    if not identifier:
+        return jsonify({
+            "found": False,
+            "appointments": [],
+            "message": NO_UPCOMING_APPOINTMENTS_MESSAGE,
+        }), 400
+
+    calendar_service = get_calendar_service()
+    if not calendar_service:
+        return jsonify({"error": "Google Calendar service unavailable"}), 500
+
+    identity = resolve_client_identity_from_sheets(identifier) or {}
+    client_email = identity.get("email") or (norm_email(identifier) if "@" in identifier else "")
+    client_phone = identity.get("phone") or (_phone_digits(identifier) if "@" not in identifier else "")
+    first_name = identity.get("firstName") or ""
+    last_name = identity.get("lastName") or ""
+
+    # Identifier-only fallback when not in Sheets
+    if not client_email and "@" in identifier:
+        client_email = norm_email(identifier)
+    if not client_phone and "@" not in identifier:
+        client_phone = _phone_digits(identifier)
+
+    if not client_email and not client_phone and not (first_name or last_name):
+        return jsonify({
+            "found": False,
+            "appointments": [],
+            "message": NO_UPCOMING_APPOINTMENTS_MESSAGE,
+            "businessPhone": BUSINESS_PHONE_DISPLAY,
+            "businessEmail": BUSINESS_EMAIL,
+        })
+
+    now = datetime.datetime.now(timezone.utc)
+    time_max = now + timedelta(days=180)
+    local_tz = ZoneInfo(LOCAL_TIMEZONE)
+
+    try:
+        events = list_client_appointments(
+            calendar_service,
+            PRIMARY_CALENDAR_ID,
+            client_email,
+            first_name,
+            last_name,
+            now,
+            time_max,
+            client_phone=client_phone,
+        )
+        # Only future starts
+        upcoming = []
+        for event in events:
+            start_dt = parse_iso_datetime(event['start']['dateTime'])
+            if start_dt >= now:
+                upcoming.append(event)
+            if len(upcoming) >= 5:
+                break
+
+        if not upcoming:
+            return jsonify({
+                "found": False,
+                "appointments": [],
+                "message": NO_UPCOMING_APPOINTMENTS_MESSAGE,
+                "businessPhone": BUSINESS_PHONE_DISPLAY,
+                "businessEmail": BUSINESS_EMAIL,
+            })
+
+        if not first_name:
+            summary_name = _name_from_appointment_summary(upcoming[0].get('summary', ''))
+            if summary_name:
+                parts = summary_name.split(' ', 1)
+                first_name = parts[0]
+                last_name = parts[1] if len(parts) > 1 else last_name
+
+        # Prefer contact details from the first matched event description when Sheets lacked them
+        first_meta = parse_appointment_description_metadata(upcoming[0].get('description') or '')
+        if not client_email and first_meta.get('email'):
+            client_email = norm_email(first_meta['email'])
+        if not client_phone and first_meta.get('phone'):
+            client_phone = _phone_digits(first_meta['phone'])
+
+        appointments = [serialize_upcoming_appointment(ev, local_tz) for ev in upcoming]
+        token_identity = {
+            "email": client_email,
+            "phone": client_phone,
+            "firstName": first_name,
+            "lastName": last_name,
+        }
+        manage_token = create_manage_appointment_token(
+            token_identity,
+            [appt["id"] for appt in appointments],
+        )
+
+        return jsonify({
+            "found": True,
+            "firstName": first_name,
+            "lastName": last_name,
+            "appointments": appointments,
+            "manageToken": manage_token,
+            "businessPhone": BUSINESS_PHONE_DISPLAY,
+            "businessEmail": BUSINESS_EMAIL,
+        })
+    except Exception as e:
+        print(f"ERROR: my_appointments failed: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/cancel-appointment', methods=['POST'])
+def cancel_appointment():
+    """
+    Delete a claimed upcoming appointment from Google Calendar and notify admin + client.
+    Requires a manageToken from /api/my-appointments.
+    """
+    data = request.get_json(silent=True) or {}
+    manage_token = (data.get("manageToken") or "").strip()
+    event_id = (data.get("eventId") or "").strip()
+    if not manage_token or not event_id:
+        return jsonify({"error": "manageToken and eventId are required."}), 400
+
+    payload = verify_manage_appointment_token(manage_token)
+    if not payload:
+        return jsonify({"error": "Invalid or expired manage token. Please look up your appointments again."}), 401
+    if event_id not in payload.get("eventIds", []):
+        return jsonify({"error": "That appointment is not covered by this lookup session."}), 403
+
+    calendar_service = get_calendar_service()
+    if not calendar_service:
+        return jsonify({"error": "Google Calendar service unavailable"}), 500
+
+    local_tz = ZoneInfo(LOCAL_TIMEZONE)
+    client_email = norm_email(payload.get("email", ""))
+    client_phone = _phone_digits(payload.get("phone", ""))
+    first_name = (payload.get("firstName") or "").strip()
+    last_name = (payload.get("lastName") or "").strip()
+    display_name = " ".join(f"{first_name} {last_name}".split()).strip() or "A client"
+
+    try:
+        event = execute_with_retry(
+            calendar_service.events().get(calendarId=PRIMARY_CALENDAR_ID, eventId=event_id)
+        )
+    except HttpError as e:
+        if getattr(e, "resp", None) is not None and e.resp.status == 404:
+            return jsonify({"error": "Appointment not found. It may already have been cancelled."}), 404
+        print(f"ERROR: cancel_appointment get failed: {e}")
+        return jsonify({"error": "Could not load appointment."}), 500
+    except Exception as e:
+        print(f"ERROR: cancel_appointment get failed: {e}")
+        return jsonify({"error": "Could not load appointment."}), 500
+
+    if not event_belongs_to_client(
+        event, client_email, first_name, last_name, client_phone=client_phone
+    ):
+        return jsonify({"error": "Appointment does not match this contact."}), 403
+
+    start_raw = (event.get("start") or {}).get("dateTime")
+    if not start_raw:
+        return jsonify({"error": "Cannot cancel this type of event."}), 400
+    start_dt = parse_iso_datetime(start_raw)
+    if start_dt < datetime.datetime.now(timezone.utc):
+        return jsonify({"error": "Past appointments cannot be cancelled here."}), 400
+
+    meta = parse_appointment_description_metadata(event.get("description") or "")
+    duration = (meta.get("duration") or "").strip() or "appointment"
+    service_type = (meta.get("service") or "").strip() or "massage"
+    local_start = start_dt.astimezone(local_tz)
+    local_day = local_start.strftime("%A")
+    local_date = local_start.strftime("%B %d, %Y")
+
+    notify_email = client_email or norm_email(meta.get("email", ""))
+
+    try:
+        execute_with_retry(
+            calendar_service.events().delete(calendarId=PRIMARY_CALENDAR_ID, eventId=event_id)
+        )
+    except HttpError as e:
+        if getattr(e, "resp", None) is not None and e.resp.status == 404:
+            return jsonify({"error": "Appointment not found. It may already have been cancelled."}), 404
+        print(f"ERROR: cancel_appointment delete failed: {e}")
+        return jsonify({"error": "Could not cancel appointment."}), 500
+    except Exception as e:
+        print(f"ERROR: cancel_appointment delete failed: {e}")
+        return jsonify({"error": "Could not cancel appointment."}), 500
+
+    admin_subject = "Appointment Cancellation Notice"
+    admin_body = (
+        f"<p>{html.escape(display_name)} cancelled their "
+        f"{html.escape(duration)} {html.escape(service_type)} appointment on "
+        f"{html.escape(local_day)} {html.escape(local_date)}.</p>"
+    )
+    client_subject = "Your appointment has been cancelled"
+    client_body = (
+        f"<p>You have successfully cancelled your {html.escape(service_type)} appointment "
+        f"on {html.escape(local_day)} {html.escape(local_date)}. "
+        "You can make a new booking online or contact me to reschedule.</p>"
+        "<p>High Five!<br>Chelsea Vaccaro</p>"
+    )
+
+    if SENDER_EMAIL:
+        ok, err = send_email(SENDER_EMAIL, admin_subject, admin_body)
+        if not ok:
+            print(f"WARNING: Admin cancel email failed: {err}")
+    if notify_email:
+        ok, err = send_email(notify_email, client_subject, client_body)
+        if not ok:
+            print(f"WARNING: Client cancel email failed: {err}")
+    else:
+        print("WARNING: No client email available for cancellation confirmation.")
+
+    print(
+        f"INFO: Appointment cancelled/deleted {event_id} for {display_name} "
+        f"({duration} {service_type} on {local_day} {local_date})"
+    )
+    return jsonify({"status": "cancelled", "eventId": event_id})
+
 
 @app.route('/api/available-days', methods=['GET'])
 def get_available_days():
