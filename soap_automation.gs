@@ -17,6 +17,8 @@ function onFormSubmit(e) {
   const EMAIL_COL_INDEX = 9; // Column J
   const NAME_COL_INDEX = 2; // Column C
   const TABLE_INSERT_ROW = 5;
+  const FORM_RESPONSES_SOAP_COL = 11; // Column K (1-based) — PDF link for this SOAP row
+  const FORM_RESPONSES_SEARCH_COL = 12; // Column L (1-based) — client search helper formula
 
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) {
@@ -77,13 +79,14 @@ function onFormSubmit(e) {
           respSheet.deleteRow(bottomRow);
         }
 
-        const formula =
+        // Search/filter helper lives in column L (K is reserved for SOAP PDF links).
+        const searchFormula =
           '=IF($B$2="", TRUE, ISNUMBER(SEARCH($B$2, TEXTJOIN(" ", TRUE, A' +
           TABLE_INSERT_ROW +
           ":J" +
           TABLE_INSERT_ROW +
           "))))";
-        respSheet.getRange(TABLE_INSERT_ROW, 11).setFormula(formula);
+        respSheet.getRange(TABLE_INSERT_ROW, FORM_RESPONSES_SEARCH_COL).setFormula(searchFormula);
       }
       SpreadsheetApp.flush();
       console.log("4) Sheet reorganization done");
@@ -166,6 +169,8 @@ function onFormSubmit(e) {
       console.error("Missing sheet: " + TAB_NAME);
     }
 
+    linkPdfToFormResponses_(respSheet, calendarId, pdfFile.getUrl());
+
     try {
       const updated = syncPreviousSoapToFutureCalendarEvents_(matchedEmail, matchedName);
       console.log("9) Updated previous SOAP links on " + updated + " future calendar event(s).");
@@ -182,11 +187,121 @@ function onFormSubmit(e) {
   }
 }
 
-// --- Previous SOAP notes on upcoming calendar events (from Intake Forms col H) ---
+// --- Previous SOAP notes on upcoming calendar events (Form Responses col K) ---
 
 const PREVIOUS_SOAP_NOTES_TAG = "--- ADMIN: PREVIOUS SOAP NOTES ---";
 const PREVIOUS_SOAP_LIMIT = 3;
 const FUTURE_DAYS = 180;
+const FORM_RESPONSES_SOAP_COL_INDEX = 10; // K (0-based)
+const FORM_RESPONSES_FIRST_DATA_ROW = 5;
+
+function discoverFormResponseColumns_(rows) {
+  const cols = { appointmentId: -1, treatmentClient: -1, dateTime: -1, timestamp: 0 };
+  const headerRows = Math.min(5, rows.length);
+  for (let h = 0; h < headerRows; h++) {
+    const row = rows[h];
+    for (let c = 0; c < row.length; c++) {
+      const norm = String(row[c] || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, "");
+      if (!norm) continue;
+      if (norm.indexOf("appointmentid") !== -1) cols.appointmentId = c;
+      else if (norm.indexOf("treatmentclient") !== -1) cols.treatmentClient = c;
+      else if (norm === "datetime" || (norm.indexOf("date") !== -1 && norm.indexOf("time") !== -1)) cols.dateTime = c;
+      else if (norm === "timestamp") cols.timestamp = c;
+    }
+  }
+  return cols;
+}
+
+function clientNameFromTreatmentClient_(value) {
+  const text = String(value || "").trim();
+  const lower = text.toLowerCase();
+  const idx = lower.lastIndexOf(" for ");
+  if (idx !== -1) return text.substring(idx + 5).trim().toLowerCase().replace(/\s+/g, " ");
+  return text.toLowerCase().replace(/\s+/g, " ");
+}
+
+function linkPdfToFormResponses_(respSheet, calendarId, pdfUrl) {
+  if (!respSheet || !pdfUrl) return;
+  respSheet.getRange(TABLE_INSERT_ROW, FORM_RESPONSES_SOAP_COL).setValue(pdfUrl);
+  console.log("8b) Linked PDF on Form Responses row " + TABLE_INSERT_ROW + " column K");
+
+  const data = respSheet.getDataRange().getValues();
+  const cols = discoverFormResponseColumns_(data);
+  const lastRow = respSheet.getLastRow();
+  for (let r = FORM_RESPONSES_FIRST_DATA_ROW; r <= lastRow; r++) {
+    const row = data[r - 1] || [];
+    let matched = false;
+    if (cols.appointmentId >= 0 && row[cols.appointmentId] !== undefined) {
+      matched = String(row[cols.appointmentId]).trim() === String(calendarId).trim();
+    }
+    if (!matched) {
+      for (let c = 0; c < row.length; c++) {
+        if (String(row[c] || "").trim() === String(calendarId).trim()) {
+          matched = true;
+          break;
+        }
+      }
+    }
+    if (matched) {
+      respSheet.getRange(r, FORM_RESPONSES_SOAP_COL).setValue(pdfUrl);
+    }
+  }
+}
+
+/**
+ * Run once from the script editor: copy Intake Forms col H → Form Responses col K
+ * (match rows by calendar event id). Then run Flask backfill-previous-soap on Render.
+ */
+function backfillFormResponsesSoapLinksFromIntake() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const intakeSheet = ss.getSheetByName("Intake Forms");
+  const respSheet = ss.getSheetByName("Form Responses 1");
+  if (!intakeSheet || !respSheet) {
+    throw new Error("Missing Intake Forms or Form Responses 1 sheet.");
+  }
+
+  const intakeData = intakeSheet.getDataRange().getValues();
+  const calToSoap = {};
+  for (let i = 1; i < intakeData.length; i++) {
+    const soap = intakeData[i][7] ? String(intakeData[i][7]).trim() : "";
+    const calId = intakeData[i][8] ? String(intakeData[i][8]).trim() : "";
+    if (calId && soap.indexOf("http") === 0) calToSoap[calId] = soap;
+  }
+
+  const respData = respSheet.getDataRange().getValues();
+  const cols = discoverFormResponseColumns_(respData);
+  let updated = 0;
+  for (let r = FORM_RESPONSES_FIRST_DATA_ROW; r <= respSheet.getLastRow(); r++) {
+    const row = respData[r - 1] || [];
+    const existing = row[FORM_RESPONSES_SOAP_COL_INDEX]
+      ? String(row[FORM_RESPONSES_SOAP_COL_INDEX]).trim()
+      : "";
+    if (existing.indexOf("http") === 0) continue;
+
+    let calId = "";
+    if (cols.appointmentId >= 0 && row[cols.appointmentId] !== undefined) {
+      calId = String(row[cols.appointmentId]).trim();
+    }
+    let soapUrl = calId ? calToSoap[calId] : "";
+    if (!soapUrl) {
+      for (const cid in calToSoap) {
+        for (let c = 0; c < row.length; c++) {
+          if (String(row[c] || "").trim() === cid) {
+            soapUrl = calToSoap[cid];
+            break;
+          }
+        }
+        if (soapUrl) break;
+      }
+    }
+    if (!soapUrl) continue;
+    respSheet.getRange(r, FORM_RESPONSES_SOAP_COL).setValue(soapUrl);
+    updated++;
+  }
+  console.log("Backfill complete. Rows updated in column K: " + updated);
+}
 
 function getPrimaryCalendarId_() {
   const id = PropertiesService.getScriptProperties().getProperty("PRIMARY_CALENDAR_ID");
@@ -206,30 +321,54 @@ function normalizeName_(name) {
 
 function fetchRecentSoapPdfEntries_(clientEmail, clientName, limit) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName("Intake Forms");
+  const sheet = ss.getSheetByName("Form Responses 1");
   if (!sheet) return [];
 
   const data = sheet.getDataRange().getValues();
-  const targetEmail = normalizeEmail_(clientEmail);
+  const cols = discoverFormResponseColumns_(data);
   const targetName = normalizeName_(clientName);
   const candidates = [];
 
-  for (let i = 1; i < data.length; i++) {
-    const row = data[i];
-    const soapUrl = row[7] ? String(row[7]).trim() : "";
+  for (let r = FORM_RESPONSES_FIRST_DATA_ROW; r <= data.length; r++) {
+    const row = data[r - 1];
+    if (!row) continue;
+    const soapUrl = row[FORM_RESPONSES_SOAP_COL_INDEX]
+      ? String(row[FORM_RESPONSES_SOAP_COL_INDEX]).trim()
+      : "";
     if (!soapUrl || soapUrl.toLowerCase().indexOf("http") !== 0) continue;
 
-    const rowEmail = normalizeEmail_(row[9]);
-    const rowName = normalizeName_(row[2]);
-    let matched = false;
-    if (targetEmail && rowEmail && rowEmail === targetEmail) matched = true;
-    else if (targetName && rowName && rowName === targetName) matched = true;
-    if (!matched) continue;
+    let rowName = "";
+    if (cols.treatmentClient >= 0 && row[cols.treatmentClient] !== undefined) {
+      rowName = normalizeName_(clientNameFromTreatmentClient_(row[cols.treatmentClient]));
+    }
+    if (!targetName || !rowName || rowName !== targetName) continue;
 
-    let label = row[1] ? String(row[1]).trim() : "";
-    if (!label) label = row[0] ? String(row[0]).trim() : "SOAP note";
+    let label = cols.dateTime >= 0 && row[cols.dateTime] ? String(row[cols.dateTime]).trim() : "";
+    if (!label && row[cols.timestamp]) label = String(row[cols.timestamp]).trim();
+    if (!label) label = "SOAP note";
 
-    candidates.push({ url: soapUrl, label: label, sortKey: row[0] ? String(row[0]) : "" });
+    const sortKey = row[cols.timestamp] ? String(row[cols.timestamp]) : label;
+    candidates.push({ url: soapUrl, label: label, sortKey: sortKey });
+  }
+
+  // Fallback: Intake Forms column H
+  const intakeSheet = ss.getSheetByName("Intake Forms");
+  if (intakeSheet && candidates.length < limit) {
+    const intakeData = intakeSheet.getDataRange().getValues();
+    const targetEmail = normalizeEmail_(clientEmail);
+    for (let i = 1; i < intakeData.length; i++) {
+      const row = intakeData[i];
+      const soapUrl = row[7] ? String(row[7]).trim() : "";
+      if (!soapUrl || soapUrl.toLowerCase().indexOf("http") !== 0) continue;
+      const rowEmail = normalizeEmail_(row[9]);
+      const rowName = normalizeName_(row[2]);
+      let matched = false;
+      if (targetEmail && rowEmail && rowEmail === targetEmail) matched = true;
+      else if (targetName && rowName && rowName === targetName) matched = true;
+      if (!matched) continue;
+      let label = row[1] ? String(row[1]).trim() : "SOAP note";
+      candidates.push({ url: soapUrl, label: label, sortKey: row[0] ? String(row[0]) : "" });
+    }
   }
 
   candidates.sort(function (a, b) {

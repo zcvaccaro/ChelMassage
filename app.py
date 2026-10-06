@@ -464,30 +464,115 @@ def _parse_intake_forms_timestamp(value):
         return datetime.datetime.min.replace(tzinfo=timezone.utc)
 
 
-def fetch_recent_soap_pdf_entries(client_email='', first_name='', last_name='', limit=3):
-    """
-    Return up to `limit` most recent SOAP PDF links from Intake Forms column H
-    for the given client (match email column J, else name column C).
-    """
-    sheets = get_sheets_service()
-    if not sheets or limit <= 0:
+FORM_RESPONSES_SHEET_NAME = "Form Responses 1"
+FORM_RESPONSES_SOAP_COL_INDEX = 10  # Column K (0-based)
+FORM_RESPONSES_FIRST_DATA_ROW = 5  # 1-based; new SOAP rows are inserted here
+
+
+def _normalize_sheet_header_cell(cell):
+    return re.sub(r"[^a-z0-9]", "", (cell or "").strip().lower())
+
+
+def discover_form_responses_columns(rows):
+    """Find key SOAP form columns by scanning header rows (sheet rows 1–5)."""
+    cols = {
+        "appointment_id": None,
+        "treatment_client": None,
+        "date_time": None,
+        "timestamp": 0,
+    }
+    for header_row in rows[:5]:
+        for idx, cell in enumerate(header_row):
+            norm = _normalize_sheet_header_cell(cell)
+            if not norm:
+                continue
+            if "appointmentid" in norm:
+                cols["appointment_id"] = idx
+            elif "treatmentclient" in norm:
+                cols["treatment_client"] = idx
+            elif norm == "datetime" or ("date" in norm and "time" in norm):
+                cols["date_time"] = idx
+            elif norm == "timestamp" and cols["timestamp"] == 0:
+                cols["timestamp"] = idx
+    return cols
+
+
+def _client_name_from_treatment_client(value):
+    """Extract client name from SOAP 'Treatment/Client' (often 'Service for Name')."""
+    text = (value or "").strip()
+    lower = text.lower()
+    if " for " in lower:
+        return " ".join(text[lower.rfind(" for ") + 5:].split()).strip().lower()
+    return " ".join(text.split()).strip().lower()
+
+
+def _row_contains_calendar_id(row, calendar_id):
+    target = (calendar_id or "").strip()
+    if not target:
+        return False
+    for cell in row:
+        if str(cell or "").strip() == target:
+            return True
+    return False
+
+
+def _collect_soap_candidates_from_form_responses(rows, target_email, full_name, limit=3):
+    """SOAP PDF URLs from Form Responses column K."""
+    if len(rows) < FORM_RESPONSES_FIRST_DATA_ROW:
         return []
 
-    target_email = norm_email(client_email)
-    full_name = " ".join(f"{first_name or ''} {last_name or ''}".split()).strip().lower()
-
-    try:
-        result = sheets.spreadsheets().values().get(
-            spreadsheetId=SPREADSHEET_ID,
-            range="'Intake Forms'!A:J"
-        ).execute()
-        rows = result.get('values', [])
-    except Exception as e:
-        print(f"WARNING: fetch_recent_soap_pdf_entries failed: {e}")
-        return []
-
+    cols = discover_form_responses_columns(rows)
+    data_start = FORM_RESPONSES_FIRST_DATA_ROW - 1  # 0-based index for row 5
     candidates = []
-    for row in rows[1:]:  # skip header if present; empty rows skipped below
+
+    for row in rows[data_start:]:
+        if len(row) <= FORM_RESPONSES_SOAP_COL_INDEX:
+            continue
+        soap_url = (row[FORM_RESPONSES_SOAP_COL_INDEX] or "").strip()
+        if not soap_url.lower().startswith("http"):
+            continue
+
+        row_name = ""
+        if cols["treatment_client"] is not None and len(row) > cols["treatment_client"]:
+            row_name = _client_name_from_treatment_client(row[cols["treatment_client"]])
+
+        matched = False
+        if full_name and row_name and row_name == full_name:
+            matched = True
+        elif full_name and row_name and full_name in row_name:
+            matched = True
+
+        if not matched:
+            continue
+
+        label = ""
+        if cols["date_time"] is not None and len(row) > cols["date_time"]:
+            label = (row[cols["date_time"]] or "").strip()
+        if not label and cols["timestamp"] is not None and len(row) > cols["timestamp"]:
+            label = (row[cols["timestamp"]] or "").strip()
+        if not label:
+            label = "SOAP note"
+
+        sort_raw = ""
+        if cols["timestamp"] is not None and len(row) > cols["timestamp"]:
+            sort_raw = row[cols["timestamp"]]
+        elif cols["date_time"] is not None and len(row) > cols["date_time"]:
+            sort_raw = row[cols["date_time"]]
+
+        candidates.append({
+            "url": soap_url,
+            "label": label,
+            "sort_ts": _parse_intake_forms_timestamp(sort_raw),
+        })
+
+    candidates.sort(key=lambda item: item["sort_ts"], reverse=True)
+    return candidates
+
+
+def _collect_soap_candidates_from_intake_forms(rows, target_email, full_name, limit=3):
+    """Fallback: SOAP PDF URLs from Intake Forms column H."""
+    candidates = []
+    for row in rows[1:]:
         if len(row) < 8:
             continue
         soap_url = (row[7] or "").strip()
@@ -516,6 +601,56 @@ def fetch_recent_soap_pdf_entries(client_email='', first_name='', last_name='', 
         })
 
     candidates.sort(key=lambda item: item["sort_ts"], reverse=True)
+    return candidates
+
+
+def fetch_recent_soap_pdf_entries(client_email='', first_name='', last_name='', limit=3):
+    """
+    Return up to `limit` most recent SOAP PDF links for a client.
+    Primary source: Form Responses column K. Fallback: Intake Forms column H.
+    """
+    sheets = get_sheets_service()
+    if not sheets or limit <= 0:
+        return []
+
+    target_email = norm_email(client_email)
+    full_name = " ".join(f"{first_name or ''} {last_name or ''}".split()).strip().lower()
+
+    if not full_name and target_email:
+        identity = resolve_client_identity_from_sheets(target_email) or {}
+        full_name = " ".join(
+            f"{identity.get('firstName', '')} {identity.get('lastName', '')}".split()
+        ).strip().lower()
+
+    form_rows = []
+    intake_rows = []
+    try:
+        form_result = sheets.spreadsheets().values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range=f"'{FORM_RESPONSES_SHEET_NAME}'!A:K"
+        ).execute()
+        form_rows = form_result.get("values", [])
+    except Exception as e:
+        print(f"WARNING: Form Responses read failed: {e}")
+
+    try:
+        intake_result = sheets.spreadsheets().values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range="'Intake Forms'!A:J"
+        ).execute()
+        intake_rows = intake_result.get("values", [])
+    except Exception as e:
+        print(f"WARNING: Intake Forms read failed: {e}")
+
+    candidates = _collect_soap_candidates_from_form_responses(
+        form_rows, target_email, full_name, limit=limit
+    )
+    if len(candidates) < limit:
+        candidates.extend(_collect_soap_candidates_from_intake_forms(
+            intake_rows, target_email, full_name, limit=limit
+        ))
+
+    candidates.sort(key=lambda item: item["sort_ts"], reverse=True)
 
     seen_urls = set()
     entries = []
@@ -527,6 +662,82 @@ def fetch_recent_soap_pdf_entries(client_email='', first_name='', last_name='', 
         if len(entries) >= limit:
             break
     return entries
+
+
+def backfill_form_responses_soap_links_from_intake():
+    """
+    Copy SOAP PDF URLs from Intake Forms H into Form Responses K by matching
+    calendar event id (Intake I ↔ any cell on the Form Responses row).
+    Returns counts dict.
+    """
+    sheets = get_sheets_service()
+    if not sheets:
+        return {"error": "Sheets unavailable"}
+
+    intake_result = sheets.spreadsheets().values().get(
+        spreadsheetId=SPREADSHEET_ID,
+        range="'Intake Forms'!A:J"
+    ).execute()
+    intake_rows = intake_result.get("values", [])
+
+    calendar_to_soap = {}
+    for row in intake_rows[1:]:
+        if len(row) <= 8:
+            continue
+        soap_url = (row[7] or "").strip()
+        cal_id = (row[8] or "").strip()
+        if cal_id and soap_url.lower().startswith("http"):
+            calendar_to_soap[cal_id] = soap_url
+
+    form_result = sheets.spreadsheets().values().get(
+        spreadsheetId=SPREADSHEET_ID,
+        range=f"'{FORM_RESPONSES_SHEET_NAME}'!A:K"
+    ).execute()
+    form_rows = form_result.get("values", [])
+    if len(form_rows) < FORM_RESPONSES_FIRST_DATA_ROW:
+        return {"rows_updated": 0, "calendar_ids_in_intake": len(calendar_to_soap)}
+
+    cols = discover_form_responses_columns(form_rows)
+    data_start = FORM_RESPONSES_FIRST_DATA_ROW - 1
+    updates = []
+    rows_updated = 0
+
+    for sheet_row_num, row in enumerate(form_rows[data_start:], start=FORM_RESPONSES_FIRST_DATA_ROW):
+        padded = row + [""] * (FORM_RESPONSES_SOAP_COL_INDEX + 1 - len(row))
+        existing_k = (padded[FORM_RESPONSES_SOAP_COL_INDEX] or "").strip()
+        if existing_k.lower().startswith("http"):
+            continue
+
+        cal_id = ""
+        if cols["appointment_id"] is not None and len(padded) > cols["appointment_id"]:
+            cal_id = str(padded[cols["appointment_id"]] or "").strip()
+
+        soap_url = calendar_to_soap.get(cal_id, "") if cal_id else ""
+        if not soap_url:
+            for cid, url in calendar_to_soap.items():
+                if _row_contains_calendar_id(padded, cid):
+                    soap_url = url
+                    break
+
+        if not soap_url:
+            continue
+
+        updates.append({
+            "range": f"'{FORM_RESPONSES_SHEET_NAME}'!K{sheet_row_num}",
+            "values": [[soap_url]],
+        })
+        rows_updated += 1
+
+    if updates:
+        sheets.spreadsheets().values().batchUpdate(
+            spreadsheetId=SPREADSHEET_ID,
+            body={"valueInputOption": "USER_ENTERED", "data": updates},
+        ).execute()
+
+    return {
+        "rows_updated": rows_updated,
+        "calendar_ids_in_intake": len(calendar_to_soap),
+    }
 
 
 def build_previous_soap_notes_html(entries):
@@ -2900,7 +3111,7 @@ def cron_complete_visits():
 def cron_backfill_previous_soap():
     """
     One-time or occasional job: add/update PREVIOUS SOAP NOTES on all upcoming
-    appointments. Links come from Intake Forms column H (PDF URLs written by SOAP automation).
+    appointments. Links come from Form Responses column K (fallback: Intake Forms H).
     """
     cron_key = os.getenv("CRON_SECRET_KEY")
     if cron_key and request.args.get('key') != cron_key:
@@ -2990,10 +3201,30 @@ def cron_backfill_previous_soap():
             "events_patched": events_patched,
             "events_with_no_soap_in_sheet": events_with_zero_soap,
             "events_skipped": events_skipped,
-            "note": "SOAP links are read from Intake Forms column H only.",
+            "note": "SOAP links are read from Form Responses column K (Intake Forms H as fallback).",
         })
     except Exception as e:
         print(f"BACKFILL-PREVIOUS-SOAP CRON ERROR: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/cron/backfill-form-responses-soap', methods=['GET'])
+def cron_backfill_form_responses_soap():
+    """
+    Copy existing SOAP PDF URLs from Intake Forms column H into Form Responses column K
+    (match by calendar event id). Run once before backfill-previous-soap if needed.
+    """
+    cron_key = os.getenv("CRON_SECRET_KEY")
+    if cron_key and request.args.get('key') != cron_key:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    try:
+        result = backfill_form_responses_soap_links_from_intake()
+        if result.get("error"):
+            return jsonify(result), 500
+        return jsonify({"status": "success", **result})
+    except Exception as e:
+        print(f"BACKFILL-FORM-RESPONSES-SOAP ERROR: {e}")
         return jsonify({"error": str(e)}), 500
 
 
