@@ -444,6 +444,167 @@ def safe_append_description(description, tag, content):
         return description
     return f"{description.rstrip()}\n\n{tag}\n{content}".strip()
 
+
+PREVIOUS_SOAP_NOTES_TAG = "--- ADMIN: PREVIOUS SOAP NOTES ---"
+
+
+def _parse_intake_forms_timestamp(value):
+    """Parse Intake Forms column A timestamps for sorting."""
+    raw = (value or "").strip()
+    if not raw:
+        return datetime.datetime.min.replace(tzinfo=timezone.utc)
+    for fmt in ("%Y-%m-%d %I:%M:%S %p", "%Y-%m-%d %H:%M:%S", "%m/%d/%Y %I:%M %p"):
+        try:
+            return datetime.datetime.strptime(raw, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    try:
+        return parse_iso_datetime(raw)
+    except Exception:
+        return datetime.datetime.min.replace(tzinfo=timezone.utc)
+
+
+def fetch_recent_soap_pdf_entries(client_email='', first_name='', last_name='', limit=3):
+    """
+    Return up to `limit` most recent SOAP PDF links from Intake Forms column H
+    for the given client (match email column J, else name column C).
+    """
+    sheets = get_sheets_service()
+    if not sheets or limit <= 0:
+        return []
+
+    target_email = norm_email(client_email)
+    full_name = " ".join(f"{first_name or ''} {last_name or ''}".split()).strip().lower()
+
+    try:
+        result = sheets.spreadsheets().values().get(
+            spreadsheetId=SPREADSHEET_ID,
+            range="'Intake Forms'!A:J"
+        ).execute()
+        rows = result.get('values', [])
+    except Exception as e:
+        print(f"WARNING: fetch_recent_soap_pdf_entries failed: {e}")
+        return []
+
+    candidates = []
+    for row in rows[1:]:  # skip header if present; empty rows skipped below
+        if len(row) < 8:
+            continue
+        soap_url = (row[7] or "").strip()
+        if not soap_url.lower().startswith("http"):
+            continue
+
+        row_email = norm_email(row[9]) if len(row) > 9 else ""
+        row_name = (row[2] if len(row) > 2 else "").strip().lower()
+
+        matched = False
+        if target_email and row_email and row_email == target_email:
+            matched = True
+        elif full_name and row_name and row_name == full_name:
+            matched = True
+
+        if not matched:
+            continue
+
+        label = (row[1] if len(row) > 1 and row[1] else "").strip()
+        if not label:
+            label = (row[0] if len(row) > 0 else "").strip() or "SOAP note"
+        candidates.append({
+            "url": soap_url,
+            "label": label,
+            "sort_ts": _parse_intake_forms_timestamp(row[0] if len(row) > 0 else ""),
+        })
+
+    candidates.sort(key=lambda item: item["sort_ts"], reverse=True)
+
+    seen_urls = set()
+    entries = []
+    for item in candidates:
+        if item["url"] in seen_urls:
+            continue
+        seen_urls.add(item["url"])
+        entries.append({"url": item["url"], "label": item["label"]})
+        if len(entries) >= limit:
+            break
+    return entries
+
+
+def build_previous_soap_notes_html(entries):
+    """HTML block: one link per prior SOAP PDF."""
+    if not entries:
+        return ""
+    parts = []
+    for entry in entries:
+        label = html.escape(entry.get("label") or "SOAP note")
+        url = html.escape(entry.get("url") or "", quote=True)
+        if not url:
+            continue
+        parts.append(f'<a href="{url}">{label}</a>')
+    return "<br>".join(parts)
+
+
+def upsert_previous_soap_notes_in_description(description, entries):
+    """Replace or remove the PREVIOUS SOAP NOTES section on a calendar description."""
+    desc = (description or "").rstrip()
+    tag = PREVIOUS_SOAP_NOTES_TAG
+
+    cleaned_lines = []
+    skipping = False
+    for line in desc.split("\n"):
+        stripped = line.strip()
+        if stripped == tag or stripped.startswith(tag):
+            skipping = True
+            continue
+        if skipping and stripped.startswith("--- ADMIN:"):
+            skipping = False
+            cleaned_lines.append(line)
+            continue
+        if skipping:
+            continue
+        cleaned_lines.append(line)
+    desc = "\n".join(cleaned_lines).rstrip()
+
+    content = build_previous_soap_notes_html(entries)
+    if not content:
+        return desc
+    block = f"{tag}\n{content}"
+    return f"{desc}\n\n{block}".strip() if desc else block
+
+
+def sync_previous_soap_notes_on_event(service, calendar_id, event_id, client_email, first_name, last_name):
+    """Write the 3 most recent SOAP PDF links onto one calendar event."""
+    entries = fetch_recent_soap_pdf_entries(client_email, first_name, last_name, limit=3)
+    event = execute_with_retry(service.events().get(calendarId=calendar_id, eventId=event_id))
+    old_desc = event.get("description", "") or ""
+    new_desc = upsert_previous_soap_notes_in_description(old_desc, entries)
+    if new_desc.strip() != old_desc.strip():
+        execute_with_retry(service.events().patch(
+            calendarId=calendar_id,
+            eventId=event_id,
+            body={"description": new_desc},
+        ))
+    return len(entries)
+
+
+def sync_previous_soap_notes_to_future_events(service, calendar_id, client_email, first_name, last_name):
+    """Refresh PREVIOUS SOAP NOTES on all upcoming appointments for this client."""
+    now = datetime.datetime.now(timezone.utc)
+    future_end = now + timedelta(days=180)
+    events = list_client_appointments(
+        service, calendar_id, client_email, first_name, last_name, now, future_end
+    )
+    updated = 0
+    for event in events:
+        try:
+            count = sync_previous_soap_notes_on_event(
+                service, calendar_id, event["id"], client_email, first_name, last_name
+            )
+            if count >= 0:
+                updated += 1
+        except Exception as e:
+            print(f"WARNING: sync_previous_soap on event {event.get('id')}: {e}")
+    return updated
+
 def build_soap_form_url(summary, booking_date_formatted, booking_time_formatted, comments, calendar_event_id):
     """Builds the pre-filled Google SOAP form URL for an appointment."""
     soap_form_base = "https://docs.google.com/forms/d/1maaknBVFgUMKRQQ1Sc47wOhNc99j77icwZG-jDK_I90/viewform"
@@ -1760,6 +1921,15 @@ def book_appointment():
 
         soap_tag = "--- ADMIN: SOAP NOTE LINK ---"
         updated_desc = safe_append_description(latest_desc, soap_tag, f"<a href=\"{soap_url}\">SOAP Form</a>")
+        updated_desc = upsert_previous_soap_notes_in_description(
+            updated_desc,
+            fetch_recent_soap_pdf_entries(
+                client_email,
+                client_info.get('first_name', ''),
+                client_info.get('last_name', ''),
+                limit=3,
+            ),
+        )
         execute_with_retry(service.events().patch(calendarId=PRIMARY_CALENDAR_ID, eventId=calendar_event_id, body={'description': updated_desc}))
     except Exception as e:
         print(f"ERROR: Failed to update calendar event with links: {e}")
@@ -2474,6 +2644,10 @@ def trigger_email_reminders():
                     working_desc = safe_append_description(
                         working_desc, intake_link_tag, f'<a href="{intake_url}">Client Intake Form</a>'
                     )
+                    working_desc = upsert_previous_soap_notes_in_description(
+                        working_desc,
+                        fetch_recent_soap_pdf_entries(client_email, first_name, last_name, limit=3),
+                    )
                     debug_counts["manual_links_added"] += 1
                     print(
                         f"DEBUG EMAIL CRON: Added intake/SOAP links for manual booking "
@@ -2720,6 +2894,108 @@ def cron_complete_visits():
     except Exception as e:
         print(f"COMPLETE-VISITS CRON ERROR: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/cron/backfill-previous-soap', methods=['GET'])
+def cron_backfill_previous_soap():
+    """
+    One-time or occasional job: add/update PREVIOUS SOAP NOTES on all upcoming
+    appointments. Links come from Intake Forms column H (PDF URLs written by SOAP automation).
+    """
+    cron_key = os.getenv("CRON_SECRET_KEY")
+    if cron_key and request.args.get('key') != cron_key:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    service = get_calendar_service()
+    if not service:
+        return jsonify({"error": "Google Calendar service unavailable"}), 500
+
+    now = datetime.datetime.now(timezone.utc)
+    time_min = now
+    time_max = now + timedelta(days=180)
+
+    events_patched = 0
+    events_seen = 0
+    events_skipped = 0
+    events_with_zero_soap = 0
+
+    try:
+        page_token = None
+        while True:
+            result = execute_with_retry(service.events().list(
+                calendarId=PRIMARY_CALENDAR_ID,
+                timeMin=time_min.isoformat(),
+                timeMax=time_max.isoformat(),
+                singleEvents=True,
+                orderBy='startTime',
+                pageToken=page_token,
+                maxResults=2500,
+            ))
+            for event in result.get('items', []):
+                summary = (event.get('summary') or '').strip()
+                lower = summary.lower()
+                if lower == 'open for bookings' or summary.upper().startswith('WAITLIST:'):
+                    events_skipped += 1
+                    continue
+                if event.get('status') == 'cancelled' or 'dateTime' not in (event.get('start') or {}):
+                    events_skipped += 1
+                    continue
+
+                start_dt = parse_iso_datetime(event['start']['dateTime'])
+                if start_dt < now:
+                    events_skipped += 1
+                    continue
+
+                events_seen += 1
+                meta = parse_appointment_description_metadata(event.get('description') or '')
+                client_email = norm_email(meta.get('email', ''))
+
+                full_from_summary = ""
+                if " for " in lower:
+                    full_from_summary = summary[lower.rfind(" for ") + 5:].strip()
+                name_parts = full_from_summary.split(' ', 1) if full_from_summary else []
+                first_name = name_parts[0] if name_parts else ''
+                last_name = name_parts[1] if len(name_parts) > 1 else ''
+
+                if not client_email and not first_name:
+                    events_skipped += 1
+                    continue
+
+                before_desc = event.get('description', '') or ''
+                link_count = sync_previous_soap_notes_on_event(
+                    service,
+                    PRIMARY_CALENDAR_ID,
+                    event['id'],
+                    client_email,
+                    first_name,
+                    last_name,
+                )
+                if link_count == 0:
+                    events_with_zero_soap += 1
+
+                after_event = execute_with_retry(
+                    service.events().get(calendarId=PRIMARY_CALENDAR_ID, eventId=event['id'])
+                )
+                after_desc = after_event.get('description', '') or ''
+                if after_desc.strip() != before_desc.strip():
+                    events_patched += 1
+
+            page_token = result.get('nextPageToken')
+            if not page_token:
+                break
+
+        return jsonify({
+            "status": "success",
+            "events_seen": events_seen,
+            "events_patched": events_patched,
+            "events_with_no_soap_in_sheet": events_with_zero_soap,
+            "events_skipped": events_skipped,
+            "note": "SOAP links are read from Intake Forms column H only.",
+        })
+    except Exception as e:
+        print(f"BACKFILL-PREVIOUS-SOAP CRON ERROR: {e}")
+        return jsonify({"error": str(e)}), 500
+
 
 @app.route('/api/webhooks/textbee', methods=['POST'])
 def textbee_webhook():
