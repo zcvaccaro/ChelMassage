@@ -49,7 +49,8 @@ SCOPES = [
     'https://www.googleapis.com/auth/calendar',
     'https://www.googleapis.com/auth/gmail.send',
     'https://www.googleapis.com/auth/spreadsheets',
-    'https://www.googleapis.com/auth/drive.file'
+    'https://www.googleapis.com/auth/drive.file',
+    'https://www.googleapis.com/auth/drive.readonly',
 ]
 SERVICE_ACCOUNT_FILE = 'key.json'
 
@@ -76,7 +77,11 @@ PRIMARY_CALENDAR_ID = CALENDAR_IDS[0]
 
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID", "").strip()
 DRIVE_FOLDER_ID = os.getenv("DRIVE_FOLDER_ID", "").strip()
+SOAP_FOLDER_ID = (
+    os.getenv("SOAP_FOLDER_ID", "1szsvDDwve5h5cISTExHKadk6r2ALVeA8") or ""
+).strip()
 LOCAL_TIMEZONE = os.getenv("LOCAL_TIMEZONE", "America/New_York").strip()
+SOAP_DRIVE_MATCH_MAX_HOURS = 36
 
 # --- Google Calendar Event Color Mapping ---
 # Map service names to Google Calendar's color IDs (1-11).
@@ -118,6 +123,7 @@ else:
     print(f"  > All Calendars:  {CALENDAR_IDS}")
     print(f"  > Spreadsheet ID: '{SPREADSHEET_ID if SPREADSHEET_ID else 'MISSING'}'")
     print(f"  > Drive Folder:   '{DRIVE_FOLDER_ID if DRIVE_FOLDER_ID else 'MISSING'}'")
+    print(f"  > SOAP Folder:    '{SOAP_FOLDER_ID if SOAP_FOLDER_ID else 'MISSING'}'")
     print(f"  > Timezone:       '{LOCAL_TIMEZONE}'")
     print(f"  > SMS Webhook:    '{'CONFIGURED' if TEXTBEE_WEBHOOK_SECRET else 'MISSING'}'")
     print("----------------------------")
@@ -506,6 +512,215 @@ def _client_name_from_treatment_client(value):
     return " ".join(text.split()).strip().lower()
 
 
+def _normalize_soap_match_name(value):
+    return " ".join((value or "").strip().lower().split())
+
+
+def _names_match_for_soap_pdf(form_norm, pdf_norm):
+    if not form_norm or not pdf_norm:
+        return False
+    if form_norm == pdf_norm:
+        return True
+    if form_norm in pdf_norm or pdf_norm in form_norm:
+        return True
+    form_client = _client_name_from_treatment_client(form_norm)
+    pdf_client = _client_name_from_treatment_client(pdf_norm)
+    return bool(form_client and pdf_client and form_client == pdf_client)
+
+
+def _parse_form_response_timestamp_ms(value):
+    """Timestamp from Form Responses (string, ISO, or Sheets serial number)."""
+    if value is None or value == "":
+        return 0
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        serial = float(value)
+        if serial > 100000:
+            # Likely ms epoch
+            return int(serial)
+        epoch = datetime.datetime(1899, 12, 30, tzinfo=timezone.utc)
+        dt = epoch + datetime.timedelta(days=serial)
+        return int(dt.timestamp() * 1000)
+    parsed = _parse_intake_forms_timestamp(str(value))
+    if parsed != datetime.datetime.min.replace(tzinfo=timezone.utc):
+        return int(parsed.timestamp() * 1000)
+    try:
+        return int(parse_iso_datetime(str(value)).timestamp() * 1000)
+    except Exception:
+        return 0
+
+
+def list_soap_pdf_entries_from_drive():
+    """Index SOAP PDFs in the SOAP Forms Drive folder (name + created time + view link)."""
+    drive = get_drive_service()
+    if not drive or not SOAP_FOLDER_ID:
+        return []
+
+    query = (
+        f"'{SOAP_FOLDER_ID}' in parents and mimeType='application/pdf' "
+        "and trashed=false"
+    )
+    pdfs = []
+    page_token = None
+    while True:
+        response = execute_with_retry(
+            drive.files().list(
+                q=query,
+                fields="nextPageToken, files(id, name, webViewLink, createdTime)",
+                pageSize=1000,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+                pageToken=page_token,
+            )
+        )
+        for file_meta in response.get("files", []):
+            name = (file_meta.get("name") or "").strip()
+            if not name.lower().startswith("soap note - "):
+                continue
+            label = re.sub(r"^soap note -\s*", "", name, flags=re.I)
+            label = re.sub(r"\.pdf$", "", label, flags=re.I).strip()
+            created_raw = file_meta.get("createdTime") or ""
+            try:
+                created_ms = int(parse_iso_datetime(created_raw).timestamp() * 1000)
+            except Exception:
+                created_ms = 0
+            file_id = file_meta.get("id") or ""
+            url = (file_meta.get("webViewLink") or "").strip()
+            if not url and file_id:
+                url = f"https://drive.google.com/file/d/{file_id}/view"
+            pdfs.append({
+                "url": url,
+                "label_norm": _normalize_soap_match_name(label),
+                "created_ms": created_ms,
+            })
+        page_token = response.get("nextPageToken")
+        if not page_token:
+            break
+
+    pdfs.sort(key=lambda item: item["created_ms"])
+    return pdfs
+
+
+def backfill_form_responses_soap_links_from_drive(force=False):
+    """
+    Match each Form Responses row to a PDF in the SOAP Drive folder (by Treatment/Client
+    + submission time) and write the Drive link to column K.
+    """
+    sheets = get_sheets_service()
+    if not sheets:
+        return {"error": "Sheets unavailable"}
+
+    pdfs = list_soap_pdf_entries_from_drive()
+    if not pdfs and SOAP_FOLDER_ID:
+        drive = get_drive_service()
+        if not drive:
+            return {"error": "Google Drive service unavailable"}
+        return {
+            "error": (
+                "No SOAP PDFs found in the SOAP folder (or Drive access denied). "
+                "Share the SOAP Forms folder with the service account email from key.json."
+            ),
+        }
+
+    form_result = sheets.spreadsheets().values().get(
+        spreadsheetId=SPREADSHEET_ID,
+        range=f"'{FORM_RESPONSES_SHEET_NAME}'!A:K",
+    ).execute()
+    form_rows = form_result.get("values", [])
+    if len(form_rows) < FORM_RESPONSES_FIRST_DATA_ROW:
+        return {
+            "rows_updated": 0,
+            "pdfs_in_folder": len(pdfs),
+            "rows_scanned": 0,
+        }
+
+    cols = discover_form_responses_columns(form_rows)
+    data_start = FORM_RESPONSES_FIRST_DATA_ROW - 1
+    max_delta_ms = SOAP_DRIVE_MATCH_MAX_HOURS * 60 * 60 * 1000
+
+    pending = []
+    rows_already_had_k = 0
+    rows_scanned = 0
+
+    for sheet_row_num, row in enumerate(form_rows[data_start:], start=FORM_RESPONSES_FIRST_DATA_ROW):
+        rows_scanned += 1
+        padded = row + [""] * (FORM_RESPONSES_SOAP_COL_INDEX + 1 - len(row))
+        existing_k = (padded[FORM_RESPONSES_SOAP_COL_INDEX] or "").strip()
+        if existing_k.lower().startswith("http") and not force:
+            rows_already_had_k += 1
+            continue
+
+        treatment = ""
+        if cols["treatment_client"] is not None and len(padded) > cols["treatment_client"]:
+            treatment = (padded[cols["treatment_client"]] or "").strip()
+        target_norm = _normalize_soap_match_name(treatment)
+        if not target_norm:
+            continue
+
+        submit_ms = 0
+        if cols["timestamp"] is not None and len(padded) > cols["timestamp"]:
+            submit_ms = _parse_form_response_timestamp_ms(padded[cols["timestamp"]])
+        if not submit_ms and cols["date_time"] is not None and len(padded) > cols["date_time"]:
+            submit_ms = _parse_form_response_timestamp_ms(padded[cols["date_time"]])
+
+        pending.append((sheet_row_num, target_norm, submit_ms))
+
+    pending.sort(key=lambda item: item[2] or 0)
+    used_urls = set()
+    updates = []
+    rows_updated = 0
+    rows_no_pdf_match = 0
+
+    for sheet_row_num, target_norm, submit_ms in pending:
+        best = None
+        best_delta = max_delta_ms + 1
+        fallback = None
+
+        for pdf in pdfs:
+            if pdf["url"] in used_urls:
+                continue
+            if not _names_match_for_soap_pdf(target_norm, pdf["label_norm"]):
+                continue
+            if not submit_ms:
+                if fallback is None:
+                    fallback = pdf
+                continue
+            delta = abs(pdf["created_ms"] - submit_ms)
+            if delta <= max_delta_ms and delta < best_delta:
+                best_delta = delta
+                best = pdf
+
+        chosen = best or fallback
+        if not chosen or not chosen.get("url"):
+            rows_no_pdf_match += 1
+            continue
+
+        used_urls.add(chosen["url"])
+        updates.append({
+            "range": f"'{FORM_RESPONSES_SHEET_NAME}'!K{sheet_row_num}",
+            "values": [[chosen["url"]]],
+        })
+        rows_updated += 1
+
+    if updates:
+        sheets.spreadsheets().values().batchUpdate(
+            spreadsheetId=SPREADSHEET_ID,
+            body={"valueInputOption": "USER_ENTERED", "data": updates},
+        ).execute()
+
+    return {
+        "source": "soap_drive_folder",
+        "soap_folder_id": SOAP_FOLDER_ID,
+        "pdfs_in_folder": len(pdfs),
+        "rows_updated": rows_updated,
+        "rows_scanned": rows_scanned,
+        "rows_already_had_k": rows_already_had_k,
+        "rows_no_pdf_match": rows_no_pdf_match,
+        "rows_still_missing_k": rows_scanned - rows_already_had_k - rows_updated,
+        "match_window_hours": SOAP_DRIVE_MATCH_MAX_HOURS,
+        "force_overwrite": bool(force),
+    }
+
+
 def _row_contains_calendar_id(row, calendar_id):
     target = (calendar_id or "").strip()
     if not target:
@@ -701,25 +916,47 @@ def backfill_form_responses_soap_links_from_intake():
     data_start = FORM_RESPONSES_FIRST_DATA_ROW - 1
     updates = []
     rows_updated = 0
+    rows_already_had_k = 0
+    rows_no_appointment_id = 0
+    rows_appointment_id_not_in_intake_h = 0
+    rows_scanned = 0
+
+    intake_cal_ids = set()
+    for row in intake_rows[1:]:
+        if len(row) > 8 and (row[8] or "").strip():
+            intake_cal_ids.add(str(row[8]).strip())
 
     for sheet_row_num, row in enumerate(form_rows[data_start:], start=FORM_RESPONSES_FIRST_DATA_ROW):
+        rows_scanned += 1
         padded = row + [""] * (FORM_RESPONSES_SOAP_COL_INDEX + 1 - len(row))
         existing_k = (padded[FORM_RESPONSES_SOAP_COL_INDEX] or "").strip()
         if existing_k.lower().startswith("http"):
+            rows_already_had_k += 1
             continue
 
         cal_id = ""
         if cols["appointment_id"] is not None and len(padded) > cols["appointment_id"]:
             cal_id = str(padded[cols["appointment_id"]] or "").strip()
+        if not cal_id:
+            for cell in padded:
+                cell_str = str(cell or "").strip()
+                if cell_str in calendar_to_soap or cell_str in intake_cal_ids:
+                    cal_id = cell_str
+                    break
 
         soap_url = calendar_to_soap.get(cal_id, "") if cal_id else ""
         if not soap_url:
             for cid, url in calendar_to_soap.items():
                 if _row_contains_calendar_id(padded, cid):
                     soap_url = url
+                    cal_id = cal_id or cid
                     break
 
         if not soap_url:
+            if not cal_id:
+                rows_no_appointment_id += 1
+            else:
+                rows_appointment_id_not_in_intake_h += 1
             continue
 
         updates.append({
@@ -734,9 +971,26 @@ def backfill_form_responses_soap_links_from_intake():
             body={"valueInputOption": "USER_ENTERED", "data": updates},
         ).execute()
 
+    rows_still_missing_k = (
+        rows_scanned
+        - rows_already_had_k
+        - rows_updated
+    )
+
     return {
         "rows_updated": rows_updated,
-        "calendar_ids_in_intake": len(calendar_to_soap),
+        "rows_scanned": rows_scanned,
+        "rows_already_had_k": rows_already_had_k,
+        "rows_still_missing_k": rows_still_missing_k,
+        "rows_no_appointment_id": rows_no_appointment_id,
+        "rows_appointment_id_not_in_intake_h": rows_appointment_id_not_in_intake_h,
+        "calendar_ids_with_soap_in_intake_h": len(calendar_to_soap),
+        "note": (
+            "This cron only copies Intake Forms column H → Form Responses K when "
+            "calendar IDs match. Rows with empty H (old submits, no intake row, or "
+            "script errors) stay blank — run backfillFormResponsesSoapLinksFromDrive "
+            "in Apps Script to match PDFs in the SOAP Drive folder by client + time."
+        ),
     }
 
 
@@ -3211,15 +3465,22 @@ def cron_backfill_previous_soap():
 @app.route('/api/cron/backfill-form-responses-soap', methods=['GET'])
 def cron_backfill_form_responses_soap():
     """
-    Copy existing SOAP PDF URLs from Intake Forms column H into Form Responses column K
-    (match by calendar event id). Run once before backfill-previous-soap if needed.
+    Match SOAP PDFs in the SOAP Forms Drive folder to Form Responses rows and write
+    links to column K. Optional: ?mode=intake for legacy Intake H copy. ?force=1
+    overwrites existing K links.
     """
     cron_key = os.getenv("CRON_SECRET_KEY")
     if cron_key and request.args.get('key') != cron_key:
         return jsonify({"error": "Unauthorized"}), 401
 
+    force = request.args.get('force', '').lower() in ('1', 'true', 'yes')
+    mode = (request.args.get('mode') or 'drive').strip().lower()
+
     try:
-        result = backfill_form_responses_soap_links_from_intake()
+        if mode == 'intake':
+            result = backfill_form_responses_soap_links_from_intake()
+        else:
+            result = backfill_form_responses_soap_links_from_drive(force=force)
         if result.get("error"):
             return jsonify(result), 500
         return jsonify({"status": "success", **result})

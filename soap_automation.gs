@@ -16,10 +16,6 @@ function onFormSubmit(e) {
   const SOAP_LINK_COL_INDEX = 7; // Column H (0-based)
   const EMAIL_COL_INDEX = 9; // Column J
   const NAME_COL_INDEX = 2; // Column C
-  const TABLE_INSERT_ROW = 5;
-  const FORM_RESPONSES_SOAP_COL = 11; // Column K (1-based) — PDF link for this SOAP row
-  const FORM_RESPONSES_SEARCH_COL = 12; // Column L (1-based) — client search helper formula
-
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) {
     console.error("Could not obtain script lock. Another run is in progress.");
@@ -193,7 +189,10 @@ const PREVIOUS_SOAP_NOTES_TAG = "--- ADMIN: PREVIOUS SOAP NOTES ---";
 const PREVIOUS_SOAP_LIMIT = 3;
 const FUTURE_DAYS = 180;
 const FORM_RESPONSES_SOAP_COL_INDEX = 10; // K (0-based)
+const FORM_RESPONSES_SOAP_COL = 11; // K (1-based) — PDF link for this SOAP row
+const FORM_RESPONSES_SEARCH_COL = 12; // L (1-based) — client search helper formula
 const FORM_RESPONSES_FIRST_DATA_ROW = 5;
+const TABLE_INSERT_ROW = 5;
 
 function discoverFormResponseColumns_(rows) {
   const cols = { appointmentId: -1, treatmentClient: -1, dateTime: -1, timestamp: 0 };
@@ -301,6 +300,127 @@ function backfillFormResponsesSoapLinksFromIntake() {
     updated++;
   }
   console.log("Backfill complete. Rows updated in column K: " + updated);
+}
+
+/**
+ * Primary backfill: match PDFs in the SOAP Forms Drive folder to Form Responses rows
+ * (Treatment/Client + submission time) and write links to column K.
+ * Same logic as Render GET /api/cron/backfill-form-responses-soap (default mode=drive).
+ */
+function backfillFormResponsesSoapLinksFromDrive() {
+  const SOAP_FOLDER_ID = "1szsvDDwve5h5cISTExHKadk6r2ALVeA8";
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const respSheet = ss.getSheetByName("Form Responses 1");
+  if (!respSheet) {
+    throw new Error("Missing Form Responses 1 sheet.");
+  }
+
+  const folder = DriveApp.getFolderById(SOAP_FOLDER_ID);
+  const pdfs = [];
+  const files = folder.getFilesByType(MimeType.PDF);
+  while (files.hasNext()) {
+    const f = files.next();
+    const fullName = f.getName();
+    if (fullName.indexOf("SOAP Note - ") !== 0) continue;
+    const label = fullName.replace(/^SOAP Note - /i, "").replace(/\.pdf$/i, "").trim();
+    pdfs.push({
+      url: f.getUrl(),
+      labelNorm: normalizeName_(label),
+      createdMs: f.getDateCreated().getTime(),
+    });
+  }
+  pdfs.sort(function (a, b) {
+    return a.createdMs - b.createdMs;
+  });
+  console.log("Drive PDFs indexed: " + pdfs.length);
+
+  const respData = respSheet.getDataRange().getValues();
+  const cols = discoverFormResponseColumns_(respData);
+  const MAX_DELTA_MS = 36 * 60 * 60 * 1000; // PDF created within 36h of sheet timestamp
+  let updated = 0;
+  let skippedHasK = 0;
+  let skippedNoMatch = 0;
+
+  for (let r = FORM_RESPONSES_FIRST_DATA_ROW; r <= respSheet.getLastRow(); r++) {
+    const row = respData[r - 1] || [];
+    const existing = row[FORM_RESPONSES_SOAP_COL_INDEX]
+      ? String(row[FORM_RESPONSES_SOAP_COL_INDEX]).trim()
+      : "";
+    if (existing.indexOf("http") === 0) {
+      skippedHasK++;
+      continue;
+    }
+
+    let treatment = "";
+    if (cols.treatmentClient >= 0 && row[cols.treatmentClient] !== undefined) {
+      treatment = String(row[cols.treatmentClient] || "").trim();
+    }
+    const targetNorm = normalizeName_(treatment);
+    if (!targetNorm) {
+      skippedNoMatch++;
+      continue;
+    }
+
+    let submitMs = 0;
+    if (cols.timestamp >= 0 && row[cols.timestamp] !== undefined) {
+      submitMs = parseSheetDateMs_(row[cols.timestamp]);
+    }
+    if (!submitMs && cols.dateTime >= 0 && row[cols.dateTime] !== undefined) {
+      submitMs = parseSheetDateMs_(row[cols.dateTime]);
+    }
+
+    let best = null;
+    let bestDelta = MAX_DELTA_MS + 1;
+    for (let i = 0; i < pdfs.length; i++) {
+      const pdf = pdfs[i];
+      if (!namesMatchForSoapPdf_(targetNorm, pdf.labelNorm)) continue;
+      if (!submitMs) {
+        if (!best) best = pdf;
+        continue;
+      }
+      const delta = Math.abs(pdf.createdMs - submitMs);
+      if (delta <= MAX_DELTA_MS && delta < bestDelta) {
+        bestDelta = delta;
+        best = pdf;
+      }
+    }
+
+    if (!best || !best.url) {
+      skippedNoMatch++;
+      continue;
+    }
+
+    respSheet.getRange(r, FORM_RESPONSES_SOAP_COL).setValue(best.url);
+    updated++;
+  }
+
+  console.log(
+    "Drive backfill complete. Updated K: " +
+      updated +
+      ", already had K: " +
+      skippedHasK +
+      ", no PDF match: " +
+      skippedNoMatch
+  );
+}
+
+function parseSheetDateMs_(value) {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "number" && !isNaN(value)) {
+    return new Date(Math.round((value - 25569) * 86400 * 1000)).getTime();
+  }
+  const parsed = new Date(String(value || ""));
+  return isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+}
+
+function namesMatchForSoapPdf_(formNorm, pdfNorm) {
+  if (!formNorm || !pdfNorm) return false;
+  if (formNorm === pdfNorm) return true;
+  if (formNorm.indexOf(pdfNorm) !== -1 || pdfNorm.indexOf(formNorm) !== -1) return true;
+  const formClient = clientNameFromTreatmentClient_(formNorm);
+  const pdfClient = clientNameFromTreatmentClient_(pdfNorm);
+  if (formClient && pdfClient && formClient === pdfClient) return true;
+  return false;
 }
 
 function getPrimaryCalendarId_() {
