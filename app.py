@@ -3790,6 +3790,15 @@ def submit_intake():
             conditions = ', '.join(conditions)
         write_line("Conditions:", conditions or 'N/A', is_multiline=True)
         write_line("Allergies:", data.get('allergies') or 'N/A', is_multiline=True)
+
+        # --- Emergency Contact ---
+        write_section_header("Emergency Contact")
+        emergency_name = (
+            f"{data.get('emergencyFirstName', '').strip()} "
+            f"{data.get('emergencyLastName', '').strip()}"
+        ).strip()
+        write_line("Name:", emergency_name or 'N/A')
+        write_line("Phone:", data.get('emergencyPhone') or 'N/A')
         pdf.ln(5)
 
         # --- Embed Body Chart Images Side-by-Side and Scaled ---
